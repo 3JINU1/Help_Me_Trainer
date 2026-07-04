@@ -18,6 +18,11 @@ class ExercisePage extends StatelessWidget {
     required this.onMoveSplitSession,
     required this.onSetSplitSessionType,
     required this.onSetSplitSessionExercise,
+    required this.onSetSplitSessionWeight,
+    required this.onSetSplitSessionSets,
+    required this.onSetSplitSessionReps,
+    required this.onSetSplitSessionRestSeconds,
+    required this.onSetSplitSessionCardioSeconds,
     required this.restSeconds,
     required this.onChangeRestSeconds,
     required this.weeklyRoutine,
@@ -42,6 +47,11 @@ class ExercisePage extends StatelessWidget {
   final void Function(int targetIndex, int sessionIndex, int delta) onMoveSplitSession;
   final void Function(int targetIndex, int sessionIndex, String type) onSetSplitSessionType;
   final void Function(int targetIndex, int sessionIndex, String? exercise) onSetSplitSessionExercise;
+  final void Function(int targetIndex, int sessionIndex, int? weight) onSetSplitSessionWeight;
+  final void Function(int targetIndex, int sessionIndex, int? sets) onSetSplitSessionSets;
+  final void Function(int targetIndex, int sessionIndex, int? reps) onSetSplitSessionReps;
+  final void Function(int targetIndex, int sessionIndex, int restSeconds) onSetSplitSessionRestSeconds;
+  final void Function(int targetIndex, int sessionIndex, int seconds) onSetSplitSessionCardioSeconds;
   final int restSeconds;
   final void Function(int delta) onChangeRestSeconds;
   final Map<String, List<String>> weeklyRoutine;
@@ -57,35 +67,6 @@ class ExercisePage extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 12),
-          child: Text('루틴 모드 선택', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () => onSetRoutineMode('분할'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: selectedRoutineMode == '분할' ? Colors.white : Colors.white24,
-                  foregroundColor: selectedRoutineMode == '분할' ? Colors.red.shade900 : Colors.white,
-                ),
-                child: const Text('분할 루틴'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () => onSetRoutineMode('주차'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: selectedRoutineMode == '주차' ? Colors.white : Colors.white24,
-                  foregroundColor: selectedRoutineMode == '주차' ? Colors.red.shade900 : Colors.white,
-                ),
-                child: const Text('주차 루틴'),
-              ),
-            ),
-          ],
-        ),
         const SizedBox(height: 24),
         const Padding(
           padding: EdgeInsets.only(bottom: 12),
@@ -103,202 +84,172 @@ class ExercisePage extends StatelessWidget {
         const SizedBox(height: 16),
         const Padding(
           padding: EdgeInsets.only(bottom: 12),
-          child: Text('휴식 시간', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+          child: Text('세션 구성', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
         ),
-        Row(
-          children: [
-            Expanded(
-              child: SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  activeTrackColor: Colors.white,
-                  inactiveTrackColor: Colors.white24,
-                  thumbColor: Colors.white,
-                  valueIndicatorColor: Colors.red.shade900,
-                ),
-                child: Slider(
-                  min: 10,
-                  max: 180,
-                  divisions: 17,
-                  value: restSeconds.toDouble(),
-                  label: '$restSeconds초',
-                  onChanged: (value) => onChangeRestSeconds(value.toInt()),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text('$restSeconds초', style: const TextStyle(color: Colors.white)),
-          ],
-        ),
-        const SizedBox(height: 24),
-        if (selectedRoutineMode == '분할') ...[
-          const Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: Text('분할 타겟 설정', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white24,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white24),
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('활동을 추가하세요', style: TextStyle(color: Colors.white70)),
+              ElevatedButton(
+                onPressed: () => onAddSplitSession(selectedSplitTargetIndex),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.white24),
+                child: const Icon(Icons.add, color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+        ...splitTargetSessions[selectedSplitTargetIndex].asMap().entries.map((entry) {
+          final sessionIndex = entry.key;
+          final session = entry.value;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ...splitTargets.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final value = entry.value;
-                  final selected = index == selectedSplitTargetIndex;
-                  return GestureDetector(
-                    onTap: () => onSetSelectedSplitTarget(index),
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 10),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: selected ? Colors.white : Colors.white24,
-                        borderRadius: BorderRadius.circular(30),
-                        border: Border.all(color: selected ? Colors.white : Colors.white24),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircleAvatar(
-                            radius: 18,
-                            backgroundColor: selected ? Colors.red.shade900 : Colors.white,
-                            child: Text('${index + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                          const SizedBox(width: 10),
-                          Text(value, style: TextStyle(color: selected ? Colors.red.shade900 : Colors.white)),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-                GestureDetector(
-                  onTap: onAddSplitTarget,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.add, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          const Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: Text('분할 타겟 선택', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-          ),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: ['상체', '하체', '가슴', '등', '어깨', '유산소', '휴식']
-                .map((target) {
-                  final isSelected = splitTargets[selectedSplitTargetIndex] == target;
-                  return GestureDetector(
-                    onTap: () => onSetSplitTarget(selectedSplitTargetIndex, target),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.white : Colors.white24,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: isSelected ? Colors.white : Colors.white24),
-                      ),
-                      child: Text(target, style: TextStyle(color: isSelected ? Colors.red.shade900 : Colors.white)),
-                    ),
-                  );
-                })
-                .toList(),
-          ),
-          const SizedBox(height: 24),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text('${splitTargets[selectedSplitTargetIndex]} 세션 구성', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-          ),
-          if (splitTargets[selectedSplitTargetIndex] == '휴식') ...[
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(14)),
-              child: const Text(
-                '휴식은 세션이 필요하지 않습니다.',
-                style: TextStyle(color: Colors.white70),
-              ),
-            ),
-          ] else ...[
-            ...splitTargetSessions[selectedSplitTargetIndex].asMap().entries.map((entry) {
-              final sessionIndex = entry.key;
-              final session = entry.value;
-              return Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: session.type,
-                            decoration: const InputDecoration(border: InputBorder.none),
-                            items: ['스트레칭', '운동', '유산소']
-                                .map((type) => DropdownMenuItem(value: type, child: Text(type)))
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) onSetSplitSessionType(selectedSplitTargetIndex, sessionIndex, value);
-                            },
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_upward, color: Colors.black54),
-                          onPressed: sessionIndex > 0
-                              ? () => onMoveSplitSession(selectedSplitTargetIndex, sessionIndex, -1)
-                              : null,
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_downward, color: Colors.black54),
-                          onPressed: sessionIndex < splitTargetSessions[selectedSplitTargetIndex].length - 1
-                              ? () => onMoveSplitSession(selectedSplitTargetIndex, sessionIndex, 1)
-                              : null,
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add_circle_outline, color: Colors.black54),
-                          onPressed: () => onInsertSplitSession(selectedSplitTargetIndex, sessionIndex),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String?>(
-                      initialValue: session.exercise,
-                      decoration: const InputDecoration(
-                        labelText: '세션에 운동 추가',
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: session.type,
+                        decoration: const InputDecoration(border: InputBorder.none),
+                        items: ['', '운동', '유산소', '스트레칭', '휴식']
+                            .map((type) => DropdownMenuItem(value: type, child: Text(type.isEmpty ? '타입 선택' : type)))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) onSetSplitSessionType(selectedSplitTargetIndex, sessionIndex, value);
+                        },
                       ),
-                      items: [
-                        const DropdownMenuItem<String?>(value: null, child: Text('운동 선택')),
-                        ...exerciseNames.map((exercise) => DropdownMenuItem<String?>(value: exercise, child: Text(exercise))),
-                      ],
-                      onChanged: (value) => onSetSplitSessionExercise(selectedSplitTargetIndex, sessionIndex, value),
                     ),
-                    if (session.exercise != null && session.exercise!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text('선택된 운동: ${session.exercise}', style: const TextStyle(color: Colors.black54)),
-                      ),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_upward, color: Colors.black54),
+                      onPressed: sessionIndex > 0 ? () => onMoveSplitSession(selectedSplitTargetIndex, sessionIndex, -1) : null,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_downward, color: Colors.black54),
+                      onPressed: sessionIndex < splitTargetSessions[selectedSplitTargetIndex].length - 1 ? () => onMoveSplitSession(selectedSplitTargetIndex, sessionIndex, 1) : null,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, color: Colors.black54),
+                      onPressed: () => onInsertSplitSession(selectedSplitTargetIndex, sessionIndex),
+                    ),
                   ],
                 ),
-              );
-            }),
-            ElevatedButton.icon(
-              onPressed: () => onAddSplitSession(selectedSplitTargetIndex),
-              icon: const Icon(Icons.add, color: Colors.white),
-              label: const Text('세션 추가', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.white24),
+                const SizedBox(height: 8),
+                if (session.type == '운동') ...[
+                  DropdownButtonFormField<String?>(
+                    initialValue: session.exercise,
+                    decoration: const InputDecoration(
+                      labelText: '운동',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(value: null, child: Text('운동 선택')),
+                      ...exerciseNames.map((exercise) => DropdownMenuItem<String?>(value: exercise, child: Text(exercise))),
+                    ],
+                    onChanged: (value) => onSetSplitSessionExercise(selectedSplitTargetIndex, sessionIndex, value),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          initialValue: session.weight?.toString() ?? '',
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(labelText: '무게(kg)', border: OutlineInputBorder()),
+                          onChanged: (v) => onSetSplitSessionWeight(selectedSplitTargetIndex, sessionIndex, int.tryParse(v)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          initialValue: session.sets?.toString() ?? '',
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(labelText: '세트', border: OutlineInputBorder()),
+                          onChanged: (v) => onSetSplitSessionSets(selectedSplitTargetIndex, sessionIndex, int.tryParse(v)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          initialValue: session.reps?.toString() ?? '',
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(labelText: '반복', border: OutlineInputBorder()),
+                          onChanged: (v) => onSetSplitSessionReps(selectedSplitTargetIndex, sessionIndex, int.tryParse(v)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Text('휴식(초):', style: TextStyle(color: Colors.black54)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          initialValue: session.restSeconds.toString(),
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(border: OutlineInputBorder()),
+                          onChanged: (v) {
+                            final sec = int.tryParse(v) ?? 0;
+                            onSetSplitSessionRestSeconds(selectedSplitTargetIndex, sessionIndex, sec);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (session.type == '유산소') ...[
+                  DropdownButtonFormField<String?>(
+                    initialValue: session.exercise,
+                    decoration: const InputDecoration(
+                      labelText: '유산소 종목',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(value: null, child: Text('종목 선택')),
+                      ...exerciseNames.map((exercise) => DropdownMenuItem<String?>(value: exercise, child: Text(exercise))),
+                    ],
+                    onChanged: (value) => onSetSplitSessionExercise(selectedSplitTargetIndex, sessionIndex, value),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Text('수행시간(초):', style: TextStyle(color: Colors.black54)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          initialValue: session.cardioSeconds.toString(),
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(border: OutlineInputBorder()),
+                          onChanged: (v) => onSetSplitSessionCardioSeconds(selectedSplitTargetIndex, sessionIndex, int.tryParse(v) ?? 0),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Text('추가 설정 없음', style: TextStyle(color: Colors.black54)),
+                  ),
+                ],
+              ],
             ),
-          ],
-        ],
+          );
+        }),
         if (selectedRoutineMode == '주차') ...[
           const Padding(
             padding: EdgeInsets.only(bottom: 12),
