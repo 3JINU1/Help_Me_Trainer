@@ -10,6 +10,9 @@ class CalendarPage extends StatelessWidget {
     required this.onChangeMonth,
     required this.onSelectDate,
     required this.onAddPlan,
+    required this.todayRoutineSummary,
+    required this.onOpenWeekdaySettings,
+    required this.hasRoutineForDate,
   });
 
   final DateTime visibleMonth;
@@ -19,6 +22,9 @@ class CalendarPage extends StatelessWidget {
   final void Function(int delta) onChangeMonth;
   final void Function(DateTime date) onSelectDate;
   final VoidCallback onAddPlan;
+  final List<String> todayRoutineSummary;
+  final VoidCallback onOpenWeekdaySettings;
+  final bool Function(DateTime date) hasRoutineForDate;
 
   List<DateTime> _monthDays(DateTime month) {
     final first = DateTime(month.year, month.month, 1);
@@ -49,9 +55,20 @@ class CalendarPage extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 12),
-          child: Text('오늘 운동 확인', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+        Row(
+          children: [
+            const Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text('오늘 운동 확인', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: onOpenWeekdaySettings,
+              icon: const Icon(Icons.calendar_view_week, color: Colors.white),
+              label: const Text('요일별 운동 설정', style: TextStyle(color: Colors.white)),
+            ),
+          ],
         ),
         Row(
           children: [
@@ -82,7 +99,7 @@ class CalendarPage extends StatelessWidget {
                   children: weekDays.map((day) {
                     final isCurrentMonth = day.month == visibleMonth.month;
                     final isSelected = day.year == selectedDate.year && day.month == selectedDate.month && day.day == selectedDate.day;
-                    final hasPlan = plansFor(day).isNotEmpty;
+                    final hasPlan = hasRoutineForDate(day);
                     return Expanded(
                       child: GestureDetector(
                         onTap: () => onSelectDate(day),
@@ -128,6 +145,18 @@ class CalendarPage extends StatelessWidget {
             children: [
               Text('선택한 날짜: ${selectedDate.year}.${selectedDate.month}.${selectedDate.day}', style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
+              const Text('오늘 루틴 요약', style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              if (todayRoutineSummary.isEmpty)
+                const Text('오늘 루틴이 없습니다.', style: TextStyle(color: Colors.black87))
+              else
+                ...todayRoutineSummary.map((plan) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text('• $plan', style: const TextStyle(color: Colors.black87)),
+                    )),
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 8),
               ...plansFor(selectedDate).map((plan) => Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text('• $plan', style: const TextStyle(color: Colors.black87)),

@@ -27,3 +27,19 @@ class SplitSession {
   int restSeconds;
   int cardioSeconds;
 }
+
+class RoutineExercise {
+  RoutineExercise({required this.name, required this.sets, required this.reps});
+
+  final String name;
+  final int sets;
+  final int reps;
+}
+
+class WorkoutRoutine {
+  WorkoutRoutine({required this.id, required this.name, required this.exercises});
+
+  final String id;
+  final String name;
+  final List<RoutineExercise> exercises;
+}
