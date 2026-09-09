@@ -29,11 +29,21 @@ class SplitSession {
 }
 
 class RoutineExercise {
-  RoutineExercise({required this.name, required this.sets, required this.reps});
+  RoutineExercise({
+    required this.name,
+    required this.sets,
+    required this.reps,
+    required this.weight,
+    this.type = '운동',
+    this.cardioSeconds = 0,
+  });
 
   final String name;
   final int sets;
   final int reps;
+  final int weight;
+  final String type;
+  final int cardioSeconds;
 }
 
 class WorkoutRoutine {

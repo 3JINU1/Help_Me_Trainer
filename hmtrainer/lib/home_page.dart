@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import 'models.dart';
@@ -19,6 +22,17 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int _selectedIndex = 0;
+  bool _isWorkoutMode = false;
+  bool _isPlaying = false;
+  bool _isResting = false;
+  int _restRemainingSeconds = 60;
+  Timer? _restTimer;
+  final Map<String, List<int?>> _exerciseSetProgress = {};
+  final Map<String, Map<int, Timer?>> _setTouchTimers = {};
+  final Map<String, Set<int>> _finalizedSetIndexes = {};
+  final Map<String, Timer?> _cardioTimers = {};
+  final Map<String, int> _cardioRemainingSeconds = {};
+  final Map<String, bool> _cardioRunning = {};
   final List<String> _exerciseNames = const [
     '바벨 스쿼트',
     '프론트 스쿼트',
@@ -156,6 +170,260 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _selectedIndex = index;
     });
+  }
+
+  void _toggleWorkoutMode() {
+    final hasExistingProgress = _exerciseSetProgress.isNotEmpty ||
+        _finalizedSetIndexes.isNotEmpty ||
+        _cardioRemainingSeconds.isNotEmpty;
+
+    setState(() {
+      if (!_isWorkoutMode && hasExistingProgress) {
+        _isWorkoutMode = true;
+        _isPlaying = true;
+        return;
+      }
+
+      _isWorkoutMode = !_isWorkoutMode;
+      _isPlaying = _isWorkoutMode;
+      if (_isWorkoutMode) {
+        _initializeWorkoutProgress();
+      }
+    });
+  }
+
+  void _toggleWorkoutPlaying() {
+    if (!_isWorkoutMode) {
+      setState(() {
+        _isWorkoutMode = true;
+        _isPlaying = true;
+      });
+      return;
+    }
+
+    if (_isPlaying) {
+      _restTimer?.cancel();
+      _cardioTimers.forEach((_, timer) => timer?.cancel());
+      setState(() {
+        _isPlaying = false;
+        _isWorkoutMode = false;
+        _cardioRunning.updateAll((_, __) => false);
+      });
+      return;
+    }
+
+    setState(() {
+      _isWorkoutMode = true;
+      _isPlaying = true;
+    });
+
+    if (_isResting && _restRemainingSeconds > 0) {
+      _startRestTimer();
+    }
+
+    for (final entry in _cardioRemainingSeconds.entries) {
+      if (entry.value > 0) {
+        _startCardioTimer(entry.key);
+      }
+    }
+  }
+
+  void _initializeWorkoutProgress() {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    _exerciseSetProgress.clear();
+    _finalizedSetIndexes.clear();
+    _cardioTimers.forEach((key, timer) => timer?.cancel());
+    _cardioTimers.clear();
+    _cardioRemainingSeconds.clear();
+    _cardioRunning.clear();
+    if (routine == null) return;
+
+    for (final exercise in routine.exercises) {
+      _exerciseSetProgress[exercise.name] = List<int?>.filled(exercise.sets, null, growable: false);
+      if (exercise.type == '유산소') {
+        _cardioRemainingSeconds[exercise.name] = exercise.cardioSeconds;
+        _cardioRunning[exercise.name] = false;
+      }
+    }
+
+    _isResting = false;
+    _restRemainingSeconds = _restSeconds;
+    _restTimer?.cancel();
+  }
+
+  String _formatDuration(int totalSeconds) {
+    final hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+    final minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$hours:$minutes:$seconds';
+  }
+
+  void _startCardioTimer(String exerciseName) {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    final exercise = routine?.exercises.firstWhere(
+      (item) => item.name == exerciseName,
+      orElse: () => RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0, type: '유산소'),
+    );
+    if (exercise == null || exercise.type != '유산소') return;
+
+    final remaining = _cardioRemainingSeconds[exerciseName] ?? exercise.cardioSeconds;
+    if (remaining <= 0) return;
+    if (_cardioRunning[exerciseName] == true) return;
+
+    _cardioRunning[exerciseName] = true;
+    _cardioTimers[exerciseName]?.cancel();
+    _cardioTimers[exerciseName] = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      final currentValue = (_cardioRemainingSeconds[exerciseName] ?? exercise.cardioSeconds);
+      if (currentValue <= 1) {
+        timer.cancel();
+        _cardioTimers[exerciseName] = null;
+        _cardioRunning[exerciseName] = false;
+        setState(() {
+          _cardioRemainingSeconds[exerciseName] = 0;
+        });
+        return;
+      }
+
+      setState(() {
+        _cardioRemainingSeconds[exerciseName] = currentValue - 1;
+      });
+    });
+    setState(() {});
+  }
+
+  void _pauseCardioTimer(String exerciseName) {
+    _cardioTimers[exerciseName]?.cancel();
+    _cardioTimers[exerciseName] = null;
+    _cardioRunning[exerciseName] = false;
+    setState(() {});
+  }
+
+  bool _isSetFinalized(String exerciseName, int setIndex) {
+    return _finalizedSetIndexes[exerciseName]?.contains(setIndex) ?? false;
+  }
+
+  bool _isExerciseCompleted(String exerciseName) {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    if (routine == null) return false;
+
+    final exercise = routine.exercises.firstWhere(
+      (item) => item.name == exerciseName,
+      orElse: () => RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0),
+    );
+
+    if (exercise.type == '유산소') {
+      return (_cardioRemainingSeconds[exerciseName] ?? exercise.cardioSeconds) <= 0;
+    }
+
+    final progress = _exerciseSetProgress[exerciseName] ??
+        List<int?>.filled(exercise.sets, null, growable: false);
+
+    for (var index = 0; index < progress.length; index++) {
+      if (progress[index] == null || !_isSetFinalized(exerciseName, index)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _isExerciseUnlocked(String exerciseName) {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    if (routine == null) return true;
+
+    final index = routine.exercises.indexWhere((exercise) => exercise.name == exerciseName);
+    if (index <= 0) return true;
+
+    return List.generate(index, (i) => routine.exercises[i]).every((exercise) => _isExerciseCompleted(exercise.name));
+  }
+
+  void _resetSetValue(String exerciseName, int setIndex) {
+    final progress = _exerciseSetProgress[exerciseName];
+    if (progress == null || setIndex < 0 || setIndex >= progress.length) return;
+
+    _setTouchTimers[exerciseName]?[setIndex]?.cancel();
+    _finalizedSetIndexes[exerciseName]?.remove(setIndex);
+    progress[setIndex] = null;
+    setState(() {});
+  }
+
+  void _startSetTouchTimer(String exerciseName, int setIndex) {
+    final progress = _exerciseSetProgress[exerciseName];
+    if (progress == null || setIndex < 0 || setIndex >= progress.length) return;
+    if (_isSetFinalized(exerciseName, setIndex)) return;
+    if (!_isExerciseUnlocked(exerciseName)) return;
+
+    final previousSetDone = setIndex == 0 || List.generate(setIndex, (index) => index).every((index) => _isSetFinalized(exerciseName, index));
+    if (!previousSetDone) return;
+
+    _setTouchTimers.putIfAbsent(exerciseName, () => {});
+    _setTouchTimers[exerciseName]![setIndex]?.cancel();
+
+    final timer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return;
+
+      _finalizedSetIndexes.putIfAbsent(exerciseName, () => <int>{}).add(setIndex);
+      _startRestTimer();
+      setState(() {});
+    });
+
+    _setTouchTimers[exerciseName]![setIndex] = timer;
+  }
+
+  void _recordSetValue(String exerciseName, int setIndex) {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    final exercise = routine?.exercises.firstWhere(
+      (item) => item.name == exerciseName,
+      orElse: () => RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0),
+    );
+
+    if (exercise == null) return;
+    if (!_isExerciseUnlocked(exerciseName)) return;
+
+    final progress = _exerciseSetProgress[exerciseName];
+    if (progress == null || setIndex < 0 || setIndex >= progress.length) return;
+    if (_isSetFinalized(exerciseName, setIndex)) return;
+
+    final previousSetDone = setIndex == 0 || List.generate(setIndex, (index) => index).every((index) => _isSetFinalized(exerciseName, index));
+    if (!previousSetDone) return;
+
+    final current = progress[setIndex];
+    if (current == null) {
+      progress[setIndex] = exercise.reps;
+    } else {
+      progress[setIndex] = current > 0 ? current - 1 : 0;
+    }
+
+    _startSetTouchTimer(exerciseName, setIndex);
+    setState(() {});
+  }
+
+  void _startRestTimer() {
+    _restTimer?.cancel();
+    _isResting = true;
+    _restRemainingSeconds = _restSeconds;
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_restRemainingSeconds <= 1) {
+        timer.cancel();
+        if (mounted) {
+          setState(() {
+            _isResting = false;
+            _restRemainingSeconds = _restSeconds;
+          });
+        }
+        return;
+      }
+
+      setState(() {
+        _restRemainingSeconds -= 1;
+      });
+    });
+  }
+
+  List<String> _todayWorkoutSummary() {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    return routine?.exercises.map((exercise) => exercise.name).toList() ?? const [];
   }
 
   void _addPlan() {
@@ -356,12 +624,29 @@ class _MyHomePageState extends State<MyHomePage> {
 
     final exercises = <RoutineExercise>[];
     for (final session in _splitTargetSessions[_selectedSplitTargetIndex]) {
-      if (session.type == '운동' && session.exercise != null) {
+      if (session.exercise == null || session.exercise!.isEmpty) {
+        continue;
+      }
+
+      if (session.type == '운동') {
         exercises.add(
           RoutineExercise(
             name: session.exercise!,
             sets: session.sets ?? 0,
             reps: session.reps ?? 0,
+            weight: session.weight ?? 0,
+            type: '운동',
+          ),
+        );
+      } else if (session.type == '유산소') {
+        exercises.add(
+          RoutineExercise(
+            name: session.exercise!,
+            sets: 1,
+            reps: 0,
+            weight: 0,
+            type: '유산소',
+            cardioSeconds: session.cardioSeconds,
           ),
         );
       }
@@ -405,11 +690,13 @@ class _MyHomePageState extends State<MyHomePage> {
         routine.exercises
             .map(
               (exercise) => SplitSession(
-                type: '운동',
+                type: exercise.type == '유산소' ? '유산소' : '운동',
                 exercise: exercise.name,
-                sets: exercise.sets,
-                reps: exercise.reps,
+                weight: exercise.type == '유산소' ? null : exercise.weight,
+                sets: exercise.type == '유산소' ? 1 : exercise.sets,
+                reps: exercise.type == '유산소' ? null : exercise.reps,
                 restSeconds: 60,
+                cardioSeconds: exercise.type == '유산소' ? exercise.cardioSeconds : 0,
               ),
             )
             .toList(),
@@ -619,8 +906,45 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  void _confirmFinishWorkout() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          title: const Text('운동 종료', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w700)),
+          content: const Text('정말로 운동을 마치시겠습니까?', style: TextStyle(color: Colors.black87)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소', style: TextStyle(color: Colors.black87)),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                setState(() {
+                  _isWorkoutMode = false;
+                  _isPlaying = false;
+                  _isResting = false;
+                });
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('운동 종료'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _restTimer?.cancel();
+    for (final entry in _setTouchTimers.values) {
+      for (final timer in entry.values) {
+        timer?.cancel();
+      }
+    }
     _routineTitleController.dispose();
     _weeklyWorkoutController.dispose();
     _planController.dispose();
@@ -787,91 +1111,354 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     ];
 
-    return Scaffold(
-      backgroundColor: Colors.red.shade900,
-      appBar: AppBar(
-        title: Text(pageTitles[_selectedIndex]),
-        centerTitle: true,
-        backgroundColor: Colors.red.shade800,
-        elevation: 0,
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.only(left: 16, right: 16, top: 16),
-          child: SingleChildScrollView(child: pages[_selectedIndex]),
+    final bottomBar = BottomAppBar(
+      color: Colors.red.shade800,
+      shape: const CircularNotchedRectangle(),
+      notchMargin: 0,
+      height: 40,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              hoverColor: Colors.transparent,
+              icon: const Icon(Icons.fitness_center, size: 20),
+              color: _selectedIndex == 0 ? Colors.white : Colors.white70,
+              onPressed: () => _onNavTap(0),
+            ),
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              hoverColor: Colors.transparent,
+              icon: const Icon(Icons.calendar_today, size: 20),
+              color: _selectedIndex == 1 ? Colors.white : Colors.white70,
+              onPressed: () => _onNavTap(1),
+            ),
+            const SizedBox(width: 40),
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              hoverColor: Colors.transparent,
+              icon: const Icon(Icons.show_chart, size: 20),
+              color: _selectedIndex == 2 ? Colors.white : Colors.white70,
+              onPressed: () => _onNavTap(2),
+            ),
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              hoverColor: Colors.transparent,
+              icon: const Icon(Icons.settings, size: 20),
+              color: _selectedIndex == 3 ? Colors.white : Colors.white70,
+              onPressed: () => _onNavTap(3),
+            ),
+          ],
         ),
       ),
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: SizedBox(
-          width: 56,
-          height: 56,
-          child: FloatingActionButton(
-            onPressed: _startTodayWorkout,
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.red.shade700,
-            elevation: 4,
-            shape: const CircleBorder(),
-            child: const Icon(Icons.play_arrow, size: 28),
-          ),
+    );
+
+    final playFab = SizedBox(
+      width: 56,
+      height: 56,
+      child: FloatingActionButton(
+        onPressed: _isWorkoutMode
+            ? _toggleWorkoutPlaying
+            : (_exerciseSetProgress.isNotEmpty || _finalizedSetIndexes.isNotEmpty || _cardioRemainingSeconds.isNotEmpty
+                ? _toggleWorkoutPlaying
+                : _toggleWorkoutMode),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.red.shade700,
+        elevation: 4,
+        shape: const CircleBorder(),
+        child: Icon(
+          _isWorkoutMode ? (_isPlaying ? Icons.pause : Icons.play_arrow) : Icons.play_arrow,
+          size: 28,
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      bottomNavigationBar: BottomAppBar(
-        color: Colors.red.shade800,
-        shape: const CircularNotchedRectangle(),
-        notchMargin: 0,
-        height: 40,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 2),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              IconButton(
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                hoverColor: Colors.transparent,
-                icon: const Icon(Icons.fitness_center, size: 20),
-                color: _selectedIndex == 0 ? Colors.white : Colors.white70,
-                onPressed: () => _onNavTap(0),
+    );
+
+    final statusOverlayStyle = _isWorkoutMode
+        ? const SystemUiOverlayStyle(
+            statusBarColor: Colors.white,
+            statusBarBrightness: Brightness.light,
+            statusBarIconBrightness: Brightness.dark,
+          )
+        : const SystemUiOverlayStyle(
+            statusBarColor: Colors.red,
+            statusBarBrightness: Brightness.dark,
+            statusBarIconBrightness: Brightness.light,
+          );
+
+    final todayWorkoutList = _todayWorkoutSummary();
+    final todayRoutine = _workoutProvider.getRoutineForDate(DateTime.now());
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: statusOverlayStyle,
+      child: Scaffold(
+        backgroundColor: _isWorkoutMode ? Colors.white : Colors.red.shade900,
+        appBar: _isWorkoutMode
+            ? null
+            : AppBar(
+                title: Text(pageTitles[_selectedIndex]),
+                centerTitle: true,
+                backgroundColor: Colors.red.shade800,
+                elevation: 0,
               ),
-              IconButton(
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                hoverColor: Colors.transparent,
-                icon: const Icon(Icons.calendar_today, size: 20),
-                color: _selectedIndex == 1 ? Colors.white : Colors.white70,
-                onPressed: () => _onNavTap(1),
-              ),
-              const SizedBox(width: 40),
-              IconButton(
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                hoverColor: Colors.transparent,
-                icon: const Icon(Icons.show_chart, size: 20),
-                color: _selectedIndex == 2 ? Colors.white : Colors.white70,
-                onPressed: () => _onNavTap(2),
-              ),
-              IconButton(
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                hoverColor: Colors.transparent,
-                icon: const Icon(Icons.settings, size: 20),
-                color: _selectedIndex == 3 ? Colors.white : Colors.white70,
-                onPressed: () => _onNavTap(3),
-              ),
-            ],
-          ),
+        body: SafeArea(
+          child: _isWorkoutMode
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                  child: todayRoutine == null
+                      ? const Text(
+                          '오늘 설정된 루틴이 없습니다.',
+                          style: TextStyle(color: Colors.black54, fontSize: 16),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '오늘 운동',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            ...todayRoutine.exercises.asMap().entries.map((entry) {
+                              final exerciseIndex = entry.key;
+                              final exercise = entry.value;
+                              final isExerciseLocked = ! _isExerciseUnlocked(exercise.name);
+
+                              if (exercise.type == '유산소') {
+                                final goalSeconds = exercise.cardioSeconds;
+                                final remainingSeconds = _cardioRemainingSeconds[exercise.name] ?? goalSeconds;
+                                final isRunning = _cardioRunning[exercise.name] ?? false;
+
+                                return Opacity(
+                                  opacity: isExerciseLocked ? 0.45 : 1.0,
+                                  child: Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 18),
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: Colors.grey.shade200),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          exercise.name,
+                                          style: const TextStyle(
+                                            color: Colors.black,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          '목표시간: ${_formatDuration(goalSeconds)}',
+                                          style: const TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          '남은시간: ${_formatDuration(remainingSeconds)}',
+                                          style: const TextStyle(color: Colors.red, fontSize: 20, fontWeight: FontWeight.w800),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: ElevatedButton(
+                                                onPressed: isExerciseLocked ? null : () => _startCardioTimer(exercise.name),
+                                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade600, foregroundColor: Colors.white),
+                                                child: const Text('start'),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: ElevatedButton(
+                                                onPressed: isExerciseLocked ? null : () => _pauseCardioTimer(exercise.name),
+                                                style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade200, foregroundColor: Colors.black87),
+                                                child: const Text('rest'),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              final progress = _exerciseSetProgress[exercise.name] ??
+                                  List<int>.filled(exercise.sets, exercise.reps, growable: false);
+
+                              return Opacity(
+                                opacity: isExerciseLocked ? 0.45 : 1.0,
+                                child: Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 18),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.grey.shade200),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              exercise.name,
+                                              style: const TextStyle(
+                                                color: Colors.black,
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          Text(
+                                            '${exercise.weight}kg',
+                                            style: const TextStyle(
+                                              color: Colors.black87,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      SizedBox(
+                                        height: 38,
+                                        child: ListView.separated(
+                                          scrollDirection: Axis.horizontal,
+                                          itemCount: exercise.sets,
+                                          separatorBuilder: (_, __) => const SizedBox(width: 8),
+                                          itemBuilder: (context, index) {
+                                            final value = progress[index];
+                                            final isEmpty = value == null;
+                                            final isBlocked = isExerciseLocked || (index > 0 && !_isSetFinalized(exercise.name, index - 1));
+                                            final isFinalized = _isSetFinalized(exercise.name, index);
+
+                                            return GestureDetector(
+                                              onTap: isBlocked ? null : () => _recordSetValue(exercise.name, index),
+                                              onLongPress: isExerciseLocked ? null : () => _resetSetValue(exercise.name, index),
+                                              child: AnimatedContainer(
+                                                duration: const Duration(milliseconds: 180),
+                                                width: 42,
+                                                height: 42,
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  border: Border.all(
+                                                    color: isBlocked
+                                                        ? Colors.grey.shade300
+                                                        : (isEmpty ? Colors.black54 : (isFinalized ? Colors.red : Colors.black54)),
+                                                    width: 1.5,
+                                                  ),
+                                                  color: isBlocked
+                                                      ? Colors.grey.shade100
+                                                      : (isFinalized ? Colors.red : Colors.white),
+                                                ),
+                                                child: isEmpty
+                                                    ? const SizedBox()
+                                                    : Center(
+                                                        child: Text(
+                                                          value.toString(),
+                                                          style: TextStyle(
+                                                            color: isFinalized ? Colors.white : Colors.black87,
+                                                            fontSize: 13,
+                                                            fontWeight: FontWeight.w700,
+                                                          ),
+                                                        ),
+                                                      ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: _confirmFinishWorkout,
+                                icon: const Icon(Icons.check_circle_outline),
+                                label: const Text('운동 종료'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade700,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                ),
+                              ),
+                            ),
+                            if (_isResting) ...[
+                              const SizedBox(height: 16),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.red.shade200),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      '휴식',
+                                      style: TextStyle(
+                                        color: Colors.black87,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    Text(
+                                      '$_restRemainingSeconds초',
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                )
+              : Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 16, top: 16),
+                  child: SingleChildScrollView(child: pages[_selectedIndex]),
+                ),
         ),
+        floatingActionButton: Padding(
+          padding: EdgeInsets.only(bottom: _isWorkoutMode ? 0 : 8),
+          child: playFab,
+        ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+        bottomNavigationBar: bottomBar,
       ),
     );
   }

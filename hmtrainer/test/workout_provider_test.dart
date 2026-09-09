@@ -9,7 +9,7 @@ void main() {
       id: 'routine-1',
       name: '테스트 루틴',
       exercises: [
-        RoutineExercise(name: '벤치 프레스', sets: 3, reps: 10),
+        RoutineExercise(name: '벤치 프레스', sets: 3, reps: 10, weight: 80),
       ],
     );
 
@@ -17,5 +17,29 @@ void main() {
     provider.assignRoutineToWeekday('월', routine.id);
 
     expect(provider.getRoutineForWeekday('월')?.id, routine.id);
+  });
+
+  test('preserves cardio session metadata for a saved routine', () {
+    final provider = WorkoutProvider();
+    final routine = WorkoutRoutine(
+      id: 'routine-2',
+      name: '유산소 루틴',
+      exercises: [
+        RoutineExercise(
+          name: '러닝머신',
+          sets: 1,
+          reps: 0,
+          weight: 0,
+          type: '유산소',
+          cardioSeconds: 1800,
+        ),
+      ],
+    );
+
+    provider.addRoutine(routine);
+
+    final saved = provider.getRoutineById(routine.id)!;
+    expect(saved.exercises.single.type, '유산소');
+    expect(saved.exercises.single.cardioSeconds, 1800);
   });
 }
