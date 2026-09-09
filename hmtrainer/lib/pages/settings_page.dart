@@ -60,7 +60,7 @@ class SettingsPage extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           child: const ListTile(
             title: Text('앱 정보', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-            subtitle: Text('Help Me Trainer v1.0', style: TextStyle(color: Colors.black54)),
+            subtitle: Text('HMT v1.0', style: TextStyle(color: Colors.black54)),
           ),
         ),
       ],

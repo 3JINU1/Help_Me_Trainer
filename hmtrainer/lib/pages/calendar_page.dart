@@ -6,10 +6,8 @@ class CalendarPage extends StatelessWidget {
     required this.visibleMonth,
     required this.selectedDate,
     required this.plansFor,
-    required this.planController,
     required this.onChangeMonth,
     required this.onSelectDate,
-    required this.onAddPlan,
     required this.todayRoutineSummary,
     required this.onOpenWeekdaySettings,
     required this.hasRoutineForDate,
@@ -18,10 +16,8 @@ class CalendarPage extends StatelessWidget {
   final DateTime visibleMonth;
   final DateTime selectedDate;
   final List<String> Function(DateTime) plansFor;
-  final TextEditingController planController;
   final void Function(int delta) onChangeMonth;
   final void Function(DateTime date) onSelectDate;
-  final VoidCallback onAddPlan;
   final List<String> todayRoutineSummary;
   final VoidCallback onOpenWeekdaySettings;
   final bool Function(DateTime date) hasRoutineForDate;
@@ -143,46 +139,18 @@ class CalendarPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('선택한 날짜: ${selectedDate.year}.${selectedDate.month}.${selectedDate.day}', style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+              Text(
+                '${selectedDate.year}년 ${selectedDate.month}월 ${selectedDate.day}일',
+                style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 12),
-              const Text('오늘 루틴 요약', style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
               if (todayRoutineSummary.isEmpty)
-                const Text('오늘 루틴이 없습니다.', style: TextStyle(color: Colors.black87))
+                const Text('저장된 루틴이 없습니다.', style: TextStyle(color: Colors.black87))
               else
                 ...todayRoutineSummary.map((plan) => Padding(
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Text('• $plan', style: const TextStyle(color: Colors.black87)),
                     )),
-              const SizedBox(height: 12),
-              const Divider(),
-              const SizedBox(height: 8),
-              ...plansFor(selectedDate).map((plan) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text('• $plan', style: const TextStyle(color: Colors.black87)),
-                  )),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: planController,
-                      decoration: const InputDecoration(
-                        filled: true,
-                        fillColor: Colors.white,
-                        hintText: '오늘 할 운동 추가',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: onAddPlan,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white),
-                    child: const Text('추가'),
-                  ),
-                ],
-              ),
             ],
           ),
         ),

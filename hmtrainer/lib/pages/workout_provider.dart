@@ -24,6 +24,33 @@ class WorkoutProvider {
     saveRoutine(routine);
   }
 
+  void updateRoutineName(String routineId, String newName) {
+    final routine = getRoutineById(routineId);
+    if (routine == null) return;
+
+    final index = _routines.indexWhere((item) => item.id == routineId);
+    if (index == -1) return;
+
+    final updated = WorkoutRoutine(
+      id: routine.id,
+      name: newName,
+      exercises: routine.exercises,
+    );
+    _routines[index] = updated;
+  }
+
+  void deleteRoutine(String routineId) {
+    _routines.removeWhere((routine) => routine.id == routineId);
+
+    for (final entry in _weekdayRoutineIds.entries.toList()) {
+      if (entry.value == routineId) {
+        _weekdayRoutineIds[entry.key] = '';
+      }
+    }
+
+    _dateRoutineIds.removeWhere((_, value) => value == routineId);
+  }
+
   void assignRoutineToWeekday(String weekday, String routineId) {
     if (_weekdayRoutineIds.containsKey(weekday)) {
       _weekdayRoutineIds[weekday] = routineId;
