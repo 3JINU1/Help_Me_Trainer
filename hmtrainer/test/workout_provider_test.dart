@@ -1,8 +1,27 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hmtrainer/pages/workout_provider.dart';
 import 'package:hmtrainer/models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
+  test('복원 시 누락된 숫자 필드에 기본값을 사용한다', () {
+    final routine = WorkoutRoutine.fromJson({
+      'id': 'legacy-routine',
+      'name': '기존 루틴',
+      'exercises': [
+        {'name': '스쿼트'},
+      ],
+    });
+
+    expect(routine.exercises.single.sets, 0);
+    expect(routine.exercises.single.reps, 0);
+    expect(routine.exercises.single.weight, 0);
+    expect(routine.exercises.single.cardioSeconds, 0);
+  });
+
   test('assigns a routine to a weekday and retrieves it', () {
     final provider = WorkoutProvider();
     final routine = WorkoutRoutine(

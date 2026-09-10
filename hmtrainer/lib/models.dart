@@ -44,12 +44,52 @@ class RoutineExercise {
   final int weight;
   final String type;
   final int cardioSeconds;
+
+  factory RoutineExercise.fromJson(Map<String, dynamic> json) {
+    return RoutineExercise(
+      name: json['name'] as String,
+      sets: (json['sets'] as num?)?.toInt() ?? 0,
+      reps: (json['reps'] as num?)?.toInt() ?? 0,
+      weight: (json['weight'] as num?)?.toInt() ?? 0,
+      type: json['type'] as String? ?? '운동',
+      cardioSeconds: (json['cardioSeconds'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'sets': sets,
+      'reps': reps,
+      'weight': weight,
+      'type': type,
+      'cardioSeconds': cardioSeconds,
+    };
+  }
 }
 
 class WorkoutRoutine {
   WorkoutRoutine({required this.id, required this.name, required this.exercises});
 
+  factory WorkoutRoutine.fromJson(Map<String, dynamic> json) {
+    return WorkoutRoutine(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      exercises: (json['exercises'] as List<dynamic>)
+          .map((exercise) => RoutineExercise.fromJson(exercise as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
   final String id;
   final String name;
   final List<RoutineExercise> exercises;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'exercises': exercises.map((exercise) => exercise.toJson()).toList(),
+    };
+  }
 }

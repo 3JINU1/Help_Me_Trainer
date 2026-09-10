@@ -1,6 +1,14 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models.dart';
 
 class WorkoutProvider {
+  WorkoutProvider() {
+    loadFromStorage();
+  }
+
   final List<WorkoutRoutine> _routines = [];
   final Map<String, String?> _weekdayRoutineIds = {
     '월': null,
@@ -16,53 +24,87 @@ class WorkoutProvider {
   List<WorkoutRoutine> get routines => List.unmodifiable(_routines);
   Map<String, String?> get weekdayRoutineIds => Map.unmodifiable(_weekdayRoutineIds);
 
-  void saveRoutine(WorkoutRoutine routine) {
-    _routines.add(routine);
-  }
+  Future<void> loadFromStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final routinesJson = prefs.getStringList('workout_routines') ?? <String>[];
+    _routines
+      ..clear()
+      ..addAll(routinesJson.map((json) => WorkoutRoutine.fromJson(jsonDecode(json))).toList());
 
-  void addRoutine(WorkoutRoutine routine) {
-    saveRoutine(routine);
-  }
-
-  void updateRoutineName(String routineId, String newName) {
-    final routine = getRoutineById(routineId);
-    if (routine == null) return;
-
-    final index = _routines.indexWhere((item) => item.id == routineId);
-    if (index == -1) return;
-
-    final updated = WorkoutRoutine(
-      id: routine.id,
-      name: newName,
-      exercises: routine.exercises,
-    );
-    _routines[index] = updated;
-  }
-
-  void deleteRoutine(String routineId) {
-    _routines.removeWhere((routine) => routine.id == routineId);
-
-    for (final entry in _weekdayRoutineIds.entries.toList()) {
-      if (entry.value == routineId) {
-        _weekdayRoutineIds[entry.key] = '';
+    final weekdayEntries = prefs.getStringList('weekday_routine_ids') ?? <String>[];
+    for (final entry in weekdayEntries) {
+      final parts = entry.split('|');
+      if (parts.length == 2) {
+        _weekdayRoutineIds[parts[0]] = parts[1].isEmpty ? null : parts[1];
       }
     }
 
-    _dateRoutineIds.removeWhere((_, value) => value == routineId);
-  }
-
-  void assignRoutineToWeekday(String weekday, String routineId) {
-    if (_weekdayRoutineIds.containsKey(weekday)) {
-      _weekdayRoutineIds[weekday] = routineId;
+    final dateEntries = prefs.getStringList('date_routine_ids') ?? <String>[];
+    for (final entry in dateEntries) {
+      final parts = entry.split('|');
+      if (parts.length == 2) {
+        _dateRoutineIds[parts[0]] = parts[1];
+      }
     }
   }
 
-  void assignRoutineToDate(DateTime date, String routineId) {
+  Future<void> saveRoutine(WorkoutRoutine routine) async {
+    final existingIndex = _routines.indexWhere((item) => item.id == routine.id);
+    if (existingIndex >= 0) {
+      _routines[existingIndex] = routine;
+    } else {
+      _routines.add(routine);
+    }
+    await _persistToStorage();
+  }
+
+  Future<void> updateRoutine(WorkoutRoutine routine) async {
+    final index = _routines.indexWhere((item) => item.id == routine.id);
+    if (index >= 0) {
+      _routines[index] = routine;
+      await _persistToStorage();
+    }
+  }
+
+  Future<void> addRoutine(WorkoutRoutine routine) async {
+    await saveRoutine(routine);
+  }
+
+  Future<void> deleteRoutine(String routineId) async {
+    _routines.removeWhere((routine) => routine.id == routineId);
+    _weekdayRoutineIds.updateAll(
+      (_, assignedRoutineId) => assignedRoutineId == routineId ? null : assignedRoutineId,
+    );
+    _dateRoutineIds.removeWhere((_, assignedRoutineId) => assignedRoutineId == routineId);
+    await _persistToStorage();
+  }
+
+  Future<void> assignRoutineToWeekday(String weekday, String routineId) async {
+    if (_weekdayRoutineIds.containsKey(weekday)) {
+      _weekdayRoutineIds[weekday] = routineId;
+      await _persistToStorage();
+    }
+  }
+
+  Future<void> assignRoutineToDate(DateTime date, String routineId) async {
     _dateRoutineIds[_normalizeDate(date)] = routineId;
+    await _persistToStorage();
   }
 
   WorkoutRoutine? getRoutineById(String routineId) {
     return _routines.where((routine) => routine.id == routineId).cast<WorkoutRoutine?>().firstOrNull;
+  }
+
+  Future<void> _persistToStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final routinesJson = _routines.map((routine) => jsonEncode(routine.toJson())).toList();
+    await prefs.setStringList('workout_routines', routinesJson);
+
+    final weekdayEntries = _weekdayRoutineIds.entries.map((entry) => '${entry.key}|${entry.value ?? ''}').toList();
+    await prefs.setStringList('weekday_routine_ids', weekdayEntries);
+
+    final dateEntries = _dateRoutineIds.entries.map((entry) => '${entry.key}|${entry.value}').toList();
+    await prefs.setStringList('date_routine_ids', dateEntries);
   }
 
   WorkoutRoutine? getRoutineForWeekday(String weekday) {
