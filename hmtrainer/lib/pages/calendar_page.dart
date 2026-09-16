@@ -11,6 +11,7 @@ class CalendarPage extends StatelessWidget {
     required this.todayRoutineSummary,
     required this.onOpenWeekdaySettings,
     required this.hasRoutineForDate,
+    required this.isCompletedForDate,
   });
 
   final DateTime visibleMonth;
@@ -21,6 +22,7 @@ class CalendarPage extends StatelessWidget {
   final List<String> todayRoutineSummary;
   final VoidCallback onOpenWeekdaySettings;
   final bool Function(DateTime date) hasRoutineForDate;
+  final bool Function(DateTime date) isCompletedForDate;
 
   List<DateTime> _monthDays(DateTime month) {
     final first = DateTime(month.year, month.month, 1);
@@ -56,13 +58,23 @@ class CalendarPage extends StatelessWidget {
             const Expanded(
               child: Padding(
                 padding: EdgeInsets.only(bottom: 12),
-                child: Text('오늘 운동 확인', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                child: Text(
+                  '오늘 운동 확인',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
             TextButton.icon(
               onPressed: onOpenWeekdaySettings,
               icon: const Icon(Icons.calendar_view_week, color: Colors.white),
-              label: const Text('요일별 운동 설정', style: TextStyle(color: Colors.white)),
+              label: const Text(
+                '요일별 운동 설정',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         ),
@@ -73,7 +85,13 @@ class CalendarPage extends StatelessWidget {
               onPressed: () => onChangeMonth(-1),
             ),
             const Spacer(),
-            Text('${visibleMonth.year}년 ${visibleMonth.month}월', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            Text(
+              '${visibleMonth.year}년 ${visibleMonth.month}월',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const Spacer(),
             IconButton(
               icon: const Icon(Icons.chevron_right, color: Colors.white),
@@ -84,25 +102,48 @@ class CalendarPage extends StatelessWidget {
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(14)),
+          decoration: BoxDecoration(
+            color: Colors.white24,
+            borderRadius: BorderRadius.circular(14),
+          ),
           child: Column(
             children: [
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: headers.map((label) => Expanded(child: Center(child: Text(label, style: const TextStyle(color: Colors.white70))))).toList()),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: headers
+                    .map(
+                      (label) => Expanded(
+                        child: Center(
+                          child: Text(
+                            label,
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
               const SizedBox(height: 8),
               ...List.generate(days.length ~/ 7, (week) {
                 final weekDays = days.skip(week * 7).take(7).toList();
                 return Row(
                   children: weekDays.map((day) {
                     final isCurrentMonth = day.month == visibleMonth.month;
-                    final isSelected = day.year == selectedDate.year && day.month == selectedDate.month && day.day == selectedDate.day;
+                    final isSelected =
+                        day.year == selectedDate.year &&
+                        day.month == selectedDate.month &&
+                        day.day == selectedDate.day;
                     final hasPlan = hasRoutineForDate(day);
+                    final isCompleted = isCompletedForDate(day);
                     return Expanded(
                       child: GestureDetector(
                         onTap: () => onSelectDate(day),
                         child: Container(
                           margin: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
-                            color: isSelected ? Colors.white : Colors.transparent,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.transparent,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           height: 44,
@@ -111,7 +152,16 @@ class CalendarPage extends StatelessWidget {
                               Center(
                                 child: Text(
                                   '${day.day}',
-                                  style: TextStyle(color: isCurrentMonth ? (isSelected ? Colors.red : Colors.white) : Colors.white38, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
+                                  style: TextStyle(
+                                    color: isCurrentMonth
+                                        ? (isSelected
+                                              ? Colors.red
+                                              : Colors.white)
+                                        : Colors.white38,
+                                    fontWeight: isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
                                 ),
                               ),
                               if (hasPlan)
@@ -119,7 +169,21 @@ class CalendarPage extends StatelessWidget {
                                   bottom: 6,
                                   left: 0,
                                   right: 0,
-                                  child: Icon(Icons.fitness_center, size: 14, color: Colors.yellowAccent),
+                                  child: Icon(
+                                    Icons.fitness_center,
+                                    size: 14,
+                                    color: Colors.yellowAccent,
+                                  ),
+                                ),
+                              if (isCompleted)
+                                const Positioned(
+                                  top: 3,
+                                  right: 3,
+                                  child: Icon(
+                                    Icons.check_circle,
+                                    size: 14,
+                                    color: Colors.greenAccent,
+                                  ),
                                 ),
                             ],
                           ),
@@ -135,22 +199,36 @@ class CalendarPage extends StatelessWidget {
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
                 '${selectedDate.year}년 ${selectedDate.month}월 ${selectedDate.day}일',
-                style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               if (todayRoutineSummary.isEmpty)
-                const Text('저장된 루틴이 없습니다.', style: TextStyle(color: Colors.black87))
+                const Text(
+                  '저장된 루틴이 없습니다.',
+                  style: TextStyle(color: Colors.black87),
+                )
               else
-                ...todayRoutineSummary.map((plan) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text('• $plan', style: const TextStyle(color: Colors.black87)),
-                    )),
+                ...todayRoutineSummary.map(
+                  (plan) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '• $plan',
+                      style: const TextStyle(color: Colors.black87),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

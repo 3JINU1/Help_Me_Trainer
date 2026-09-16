@@ -61,4 +61,16 @@ void main() {
     expect(saved.exercises.single.type, '유산소');
     expect(saved.exercises.single.cardioSeconds, 1800);
   });
+
+  test('saves completed workout records and completion date', () async {
+    final provider = WorkoutProvider();
+    await provider.ready;
+    final date = DateTime(2026, 9, 10);
+    final record = WorkoutRecord(exercise: '스쿼트', weight: 100, date: date);
+
+    await provider.saveCompletedWorkout(date, [record]);
+
+    expect(provider.workoutRecords.single.exercise, '스쿼트');
+    expect(provider.isWorkoutCompletedOn(date), isTrue);
+  });
 }

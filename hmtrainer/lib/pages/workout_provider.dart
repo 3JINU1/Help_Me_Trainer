@@ -5,11 +5,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models.dart';
 
 class WorkoutProvider {
-  WorkoutProvider() {
-    loadFromStorage();
-  }
+  Future<void> get ready => _ready;
+
+  late final Future<void> _ready = loadFromStorage();
 
   final List<WorkoutRoutine> _routines = [];
+  final List<WorkoutRecord> _workoutRecords = [];
+  final Set<String> _completedWorkoutDates = {};
   final Map<String, String?> _weekdayRoutineIds = {
     '월': null,
     '화': null,
@@ -22,16 +24,34 @@ class WorkoutProvider {
   final Map<String, String> _dateRoutineIds = {};
 
   List<WorkoutRoutine> get routines => List.unmodifiable(_routines);
-  Map<String, String?> get weekdayRoutineIds => Map.unmodifiable(_weekdayRoutineIds);
+  List<WorkoutRecord> get workoutRecords => List.unmodifiable(_workoutRecords);
+  Map<String, String?> get weekdayRoutineIds =>
+      Map.unmodifiable(_weekdayRoutineIds);
 
   Future<void> loadFromStorage() async {
     final prefs = await SharedPreferences.getInstance();
     final routinesJson = prefs.getStringList('workout_routines') ?? <String>[];
     _routines
       ..clear()
-      ..addAll(routinesJson.map((json) => WorkoutRoutine.fromJson(jsonDecode(json))).toList());
+      ..addAll(
+        routinesJson
+            .map((json) => WorkoutRoutine.fromJson(jsonDecode(json)))
+            .toList(),
+      );
 
-    final weekdayEntries = prefs.getStringList('weekday_routine_ids') ?? <String>[];
+    final recordsJson = prefs.getStringList('workout_records') ?? <String>[];
+    _workoutRecords
+      ..clear()
+      ..addAll(
+        recordsJson.map((json) => WorkoutRecord.fromJson(jsonDecode(json))),
+      );
+
+    _completedWorkoutDates
+      ..clear()
+      ..addAll(prefs.getStringList('completed_workout_dates') ?? <String>[]);
+
+    final weekdayEntries =
+        prefs.getStringList('weekday_routine_ids') ?? <String>[];
     for (final entry in weekdayEntries) {
       final parts = entry.split('|');
       if (parts.length == 2) {
@@ -73,9 +93,30 @@ class WorkoutProvider {
   Future<void> deleteRoutine(String routineId) async {
     _routines.removeWhere((routine) => routine.id == routineId);
     _weekdayRoutineIds.updateAll(
-      (_, assignedRoutineId) => assignedRoutineId == routineId ? null : assignedRoutineId,
+      (_, assignedRoutineId) =>
+          assignedRoutineId == routineId ? null : assignedRoutineId,
     );
-    _dateRoutineIds.removeWhere((_, assignedRoutineId) => assignedRoutineId == routineId);
+    _dateRoutineIds.removeWhere(
+      (_, assignedRoutineId) => assignedRoutineId == routineId,
+    );
+    await _persistToStorage();
+  }
+
+  bool isWorkoutCompletedOn(DateTime date) {
+    return _completedWorkoutDates.contains(_normalizeDate(date));
+  }
+
+  Future<void> saveCompletedWorkout(
+    DateTime date,
+    List<WorkoutRecord> records,
+  ) async {
+    await ready;
+    final dateKey = _normalizeDate(date);
+    _workoutRecords.removeWhere(
+      (record) => _normalizeDate(record.date) == dateKey,
+    );
+    _workoutRecords.addAll(records);
+    _completedWorkoutDates.add(dateKey);
     await _persistToStorage();
   }
 
@@ -92,19 +133,37 @@ class WorkoutProvider {
   }
 
   WorkoutRoutine? getRoutineById(String routineId) {
-    return _routines.where((routine) => routine.id == routineId).cast<WorkoutRoutine?>().firstOrNull;
+    return _routines
+        .where((routine) => routine.id == routineId)
+        .cast<WorkoutRoutine?>()
+        .firstOrNull;
   }
 
   Future<void> _persistToStorage() async {
     final prefs = await SharedPreferences.getInstance();
-    final routinesJson = _routines.map((routine) => jsonEncode(routine.toJson())).toList();
+    final routinesJson = _routines
+        .map((routine) => jsonEncode(routine.toJson()))
+        .toList();
     await prefs.setStringList('workout_routines', routinesJson);
 
-    final weekdayEntries = _weekdayRoutineIds.entries.map((entry) => '${entry.key}|${entry.value ?? ''}').toList();
+    final weekdayEntries = _weekdayRoutineIds.entries
+        .map((entry) => '${entry.key}|${entry.value ?? ''}')
+        .toList();
     await prefs.setStringList('weekday_routine_ids', weekdayEntries);
 
-    final dateEntries = _dateRoutineIds.entries.map((entry) => '${entry.key}|${entry.value}').toList();
+    final dateEntries = _dateRoutineIds.entries
+        .map((entry) => '${entry.key}|${entry.value}')
+        .toList();
     await prefs.setStringList('date_routine_ids', dateEntries);
+
+    final recordsJson = _workoutRecords
+        .map((record) => jsonEncode(record.toJson()))
+        .toList();
+    await prefs.setStringList('workout_records', recordsJson);
+    await prefs.setStringList(
+      'completed_workout_dates',
+      _completedWorkoutDates.toList(),
+    );
   }
 
   WorkoutRoutine? getRoutineForWeekday(String weekday) {

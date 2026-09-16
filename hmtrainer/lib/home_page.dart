@@ -127,24 +127,15 @@ class _MyHomePageState extends State<MyHomePage> {
     '캐럴 워크',
   ];
   final TextEditingController _routineTitleController = TextEditingController();
-  final TextEditingController _weeklyWorkoutController = TextEditingController();
+  final TextEditingController _weeklyWorkoutController =
+      TextEditingController();
   final TextEditingController _planController = TextEditingController();
-  final List<WorkoutRecord> _records = [
-    WorkoutRecord(exercise: 'Squat', weight: 120, date: DateTime.now().subtract(const Duration(days: 14))),
-    WorkoutRecord(exercise: 'Squat', weight: 125, date: DateTime.now().subtract(const Duration(days: 7))),
-    WorkoutRecord(exercise: 'Squat', weight: 130, date: DateTime.now()),
-    WorkoutRecord(exercise: 'Bench Press', weight: 85, date: DateTime.now().subtract(const Duration(days: 14))),
-    WorkoutRecord(exercise: 'Bench Press', weight: 90, date: DateTime.now().subtract(const Duration(days: 7))),
-    WorkoutRecord(exercise: 'Bench Press', weight: 92, date: DateTime.now()),
-  ];
   final Map<DateTime, List<String>> _plannedWorkouts = {};
   final WorkoutProvider _workoutProvider = WorkoutProvider();
   final Uuid _uuid = const Uuid();
   final List<String> _splitTargets = ['상체'];
   int _selectedSplitTargetIndex = 0;
-  final List<List<SplitSession>> _splitTargetSessions = [
-    [],
-  ];
+  final List<List<SplitSession>> _splitTargetSessions = [[]];
   final Map<String, List<String>> _weeklyRoutine = {
     '월': [],
     '화': [],
@@ -166,14 +157,36 @@ class _MyHomePageState extends State<MyHomePage> {
   DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month);
   DateTime _selectedDate = DateTime.now();
 
+  @override
+  void initState() {
+    super.initState();
+    _loadWorkoutData();
+  }
+
+  Future<void> _loadWorkoutData() async {
+    await _workoutProvider.ready;
+    if (mounted) setState(() {});
+  }
+
   void _onNavTap(int index) {
+    if (_isWorkoutMode) {
+      _stopRestTimer();
+      _cardioTimers.forEach((_, timer) => timer?.cancel());
+    }
+
     setState(() {
       _selectedIndex = index;
+      if (_isWorkoutMode) {
+        _isWorkoutMode = false;
+        _isPlaying = false;
+        _cardioRunning.updateAll((_, __) => false);
+      }
     });
   }
 
   void _toggleWorkoutMode() {
-    final hasExistingProgress = _exerciseSetProgress.isNotEmpty ||
+    final hasExistingProgress =
+        _exerciseSetProgress.isNotEmpty ||
         _finalizedSetIndexes.isNotEmpty ||
         _cardioRemainingSeconds.isNotEmpty;
 
@@ -202,7 +215,7 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     if (_isPlaying) {
-      _restTimer?.cancel();
+      _stopRestTimer();
       _cardioTimers.forEach((_, timer) => timer?.cancel());
       setState(() {
         _isPlaying = false;
@@ -239,7 +252,11 @@ class _MyHomePageState extends State<MyHomePage> {
     if (routine == null) return;
 
     for (final exercise in routine.exercises) {
-      _exerciseSetProgress[exercise.name] = List<int?>.filled(exercise.sets, null, growable: false);
+      _exerciseSetProgress[exercise.name] = List<int?>.filled(
+        exercise.sets,
+        null,
+        growable: false,
+      );
       if (exercise.type == '유산소') {
         _cardioRemainingSeconds[exercise.name] = exercise.cardioSeconds;
         _cardioRunning[exercise.name] = false;
@@ -262,19 +279,29 @@ class _MyHomePageState extends State<MyHomePage> {
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
     final exercise = routine?.exercises.firstWhere(
       (item) => item.name == exerciseName,
-      orElse: () => RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0, type: '유산소'),
+      orElse: () => RoutineExercise(
+        name: exerciseName,
+        sets: 0,
+        reps: 0,
+        weight: 0,
+        type: '유산소',
+      ),
     );
     if (exercise == null || exercise.type != '유산소') return;
 
-    final remaining = _cardioRemainingSeconds[exerciseName] ?? exercise.cardioSeconds;
+    final remaining =
+        _cardioRemainingSeconds[exerciseName] ?? exercise.cardioSeconds;
     if (remaining <= 0) return;
     if (_cardioRunning[exerciseName] == true) return;
 
     _cardioRunning[exerciseName] = true;
     _cardioTimers[exerciseName]?.cancel();
-    _cardioTimers[exerciseName] = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _cardioTimers[exerciseName] = Timer.periodic(const Duration(seconds: 1), (
+      timer,
+    ) {
       if (!mounted) return;
-      final currentValue = (_cardioRemainingSeconds[exerciseName] ?? exercise.cardioSeconds);
+      final currentValue =
+          (_cardioRemainingSeconds[exerciseName] ?? exercise.cardioSeconds);
       if (currentValue <= 1) {
         timer.cancel();
         _cardioTimers[exerciseName] = null;
@@ -309,14 +336,18 @@ class _MyHomePageState extends State<MyHomePage> {
 
     final exercise = routine.exercises.firstWhere(
       (item) => item.name == exerciseName,
-      orElse: () => RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0),
+      orElse: () =>
+          RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0),
     );
 
     if (exercise.type == '유산소') {
-      return (_cardioRemainingSeconds[exerciseName] ?? exercise.cardioSeconds) <= 0;
+      return (_cardioRemainingSeconds[exerciseName] ??
+              exercise.cardioSeconds) <=
+          0;
     }
 
-    final progress = _exerciseSetProgress[exerciseName] ??
+    final progress =
+        _exerciseSetProgress[exerciseName] ??
         List<int?>.filled(exercise.sets, null, growable: false);
 
     for (var index = 0; index < progress.length; index++) {
@@ -331,10 +362,15 @@ class _MyHomePageState extends State<MyHomePage> {
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
     if (routine == null) return true;
 
-    final index = routine.exercises.indexWhere((exercise) => exercise.name == exerciseName);
+    final index = routine.exercises.indexWhere(
+      (exercise) => exercise.name == exerciseName,
+    );
     if (index <= 0) return true;
 
-    return List.generate(index, (i) => routine.exercises[i]).every((exercise) => _isExerciseCompleted(exercise.name));
+    return List.generate(
+      index,
+      (i) => routine.exercises[i],
+    ).every((exercise) => _isExerciseCompleted(exercise.name));
   }
 
   void _resetSetValue(String exerciseName, int setIndex) {
@@ -353,16 +389,23 @@ class _MyHomePageState extends State<MyHomePage> {
     if (_isSetFinalized(exerciseName, setIndex)) return;
     if (!_isExerciseUnlocked(exerciseName)) return;
 
-    final previousSetDone = setIndex == 0 || List.generate(setIndex, (index) => index).every((index) => _isSetFinalized(exerciseName, index));
+    final previousSetDone =
+        setIndex == 0 ||
+        List.generate(
+          setIndex,
+          (index) => index,
+        ).every((index) => _isSetFinalized(exerciseName, index));
     if (!previousSetDone) return;
 
     _setTouchTimers.putIfAbsent(exerciseName, () => {});
     _setTouchTimers[exerciseName]![setIndex]?.cancel();
 
-    final timer = Timer(const Duration(seconds: 2), () {
+    final timer = Timer(const Duration(milliseconds: 1200), () {
       if (!mounted) return;
 
-      _finalizedSetIndexes.putIfAbsent(exerciseName, () => <int>{}).add(setIndex);
+      _finalizedSetIndexes
+          .putIfAbsent(exerciseName, () => <int>{})
+          .add(setIndex);
       _startRestTimer();
       setState(() {});
     });
@@ -374,7 +417,8 @@ class _MyHomePageState extends State<MyHomePage> {
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
     final exercise = routine?.exercises.firstWhere(
       (item) => item.name == exerciseName,
-      orElse: () => RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0),
+      orElse: () =>
+          RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0),
     );
 
     if (exercise == null) return;
@@ -384,7 +428,12 @@ class _MyHomePageState extends State<MyHomePage> {
     if (progress == null || setIndex < 0 || setIndex >= progress.length) return;
     if (_isSetFinalized(exerciseName, setIndex)) return;
 
-    final previousSetDone = setIndex == 0 || List.generate(setIndex, (index) => index).every((index) => _isSetFinalized(exerciseName, index));
+    final previousSetDone =
+        setIndex == 0 ||
+        List.generate(
+          setIndex,
+          (index) => index,
+        ).every((index) => _isSetFinalized(exerciseName, index));
     if (!previousSetDone) return;
 
     final current = progress[setIndex];
@@ -421,16 +470,28 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  void _stopRestTimer() {
+    _restTimer?.cancel();
+    _restTimer = null;
+    _isResting = false;
+    _restRemainingSeconds = _restSeconds;
+  }
+
   List<String> _todayWorkoutSummary() {
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
-    return routine?.exercises.map((exercise) => exercise.name).toList() ?? const [];
+    return routine?.exercises.map((exercise) => exercise.name).toList() ??
+        const [];
   }
 
   void _addPlan() {
     final text = _planController.text.trim();
     if (text.isEmpty) return;
     setState(() {
-      final key = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+      final key = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+      );
       _plannedWorkouts.putIfAbsent(key, () => []);
       _plannedWorkouts[key]!.add(text);
       _planController.clear();
@@ -449,7 +510,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
   bool _hasRoutineIndicatorForDate(DateTime date) {
     final weekday = _weekdayLabelForDate(date);
-    final hasAssignedRoutine = (_workoutProvider.weekdayRoutineIds[weekday] ?? '').isNotEmpty;
+    final hasAssignedRoutine =
+        (_workoutProvider.weekdayRoutineIds[weekday] ?? '').isNotEmpty;
     return hasAssignedRoutine || _plansFor(date).isNotEmpty;
   }
 
@@ -458,7 +520,13 @@ class _MyHomePageState extends State<MyHomePage> {
     messenger.clearSnackBars();
     messenger.showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         backgroundColor: Colors.red.shade900,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.only(top: 12, left: 16, right: 16),
@@ -511,7 +579,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _insertSplitSession(int targetIndex, int sessionIndex) {
     setState(() {
-      _splitTargetSessions[targetIndex].insert(sessionIndex + 1, SplitSession(type: '운동'));
+      _splitTargetSessions[targetIndex].insert(
+        sessionIndex + 1,
+        SplitSession(type: '운동'),
+      );
     });
   }
 
@@ -533,7 +604,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _reorderSplitSessions(int targetIndex, int oldIndex, int newIndex) {
     setState(() {
-      final sessions = List<SplitSession>.from(_splitTargetSessions[targetIndex]);
+      final sessions = List<SplitSession>.from(
+        _splitTargetSessions[targetIndex],
+      );
       if (oldIndex < newIndex) {
         newIndex -= 1;
       }
@@ -549,7 +622,11 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void _setSplitSessionExercise(int targetIndex, int sessionIndex, String? exercise) {
+  void _setSplitSessionExercise(
+    int targetIndex,
+    int sessionIndex,
+    String? exercise,
+  ) {
     setState(() {
       _splitTargetSessions[targetIndex][sessionIndex].exercise = exercise;
     });
@@ -573,13 +650,21 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void _setSplitSessionRestSeconds(int targetIndex, int sessionIndex, int restSeconds) {
+  void _setSplitSessionRestSeconds(
+    int targetIndex,
+    int sessionIndex,
+    int restSeconds,
+  ) {
     setState(() {
       _splitTargetSessions[targetIndex][sessionIndex].restSeconds = restSeconds;
     });
   }
 
-  void _setSplitSessionCardioSeconds(int targetIndex, int sessionIndex, int seconds) {
+  void _setSplitSessionCardioSeconds(
+    int targetIndex,
+    int sessionIndex,
+    int seconds,
+  ) {
     setState(() {
       _splitTargetSessions[targetIndex][sessionIndex].cardioSeconds = seconds;
     });
@@ -612,7 +697,8 @@ class _MyHomePageState extends State<MyHomePage> {
     _draftRoutineNames.removeAt(index);
     if (_selectedDraftRoutineIndex == index) {
       _selectedDraftRoutineIndex = null;
-    } else if (_selectedDraftRoutineIndex != null && _selectedDraftRoutineIndex! > index) {
+    } else if (_selectedDraftRoutineIndex != null &&
+        _selectedDraftRoutineIndex! > index) {
       _selectedDraftRoutineIndex = _selectedDraftRoutineIndex! - 1;
     }
     setState(() {});
@@ -653,7 +739,9 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     if (exercises.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('저장할 운동이 없습니다.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('저장할 운동이 없습니다.')));
       return;
     }
 
@@ -667,7 +755,8 @@ class _MyHomePageState extends State<MyHomePage> {
     _workoutProvider.assignRoutineToDate(_selectedDate, routine.id);
     _selectedRoutineId = routine.id;
 
-    if (_selectedDraftRoutineIndex != null && _selectedDraftRoutineIndex! < _draftRoutineNames.length) {
+    if (_selectedDraftRoutineIndex != null &&
+        _selectedDraftRoutineIndex! < _draftRoutineNames.length) {
       _draftRoutineNames.removeAt(_selectedDraftRoutineIndex!);
       _selectedDraftRoutineIndex = null;
     }
@@ -696,7 +785,9 @@ class _MyHomePageState extends State<MyHomePage> {
                 sets: exercise.type == '유산소' ? 1 : exercise.sets,
                 reps: exercise.type == '유산소' ? null : exercise.reps,
                 restSeconds: 60,
-                cardioSeconds: exercise.type == '유산소' ? exercise.cardioSeconds : 0,
+                cardioSeconds: exercise.type == '유산소'
+                    ? exercise.cardioSeconds
+                    : 0,
               ),
             )
             .toList(),
@@ -741,15 +832,30 @@ class _MyHomePageState extends State<MyHomePage> {
   void _startTodayWorkout() {
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
     if (routine == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('오늘의 루틴이 없습니다.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('오늘의 루틴이 없습니다.')));
       return;
     }
 
     setState(() {
-      _plannedWorkouts.putIfAbsent(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day), () => []);
-      _plannedWorkouts[DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)]!.clear();
+      _plannedWorkouts.putIfAbsent(
+        DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day),
+        () => [],
+      );
+      _plannedWorkouts[DateTime(
+            DateTime.now().year,
+            DateTime.now().month,
+            DateTime.now().day,
+          )]!
+          .clear();
       for (final exercise in routine.exercises) {
-        _plannedWorkouts[DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)]!.add('${exercise.name} ${exercise.sets}세트 x ${exercise.reps}회');
+        _plannedWorkouts[DateTime(
+              DateTime.now().year,
+              DateTime.now().month,
+              DateTime.now().day,
+            )]!
+            .add('${exercise.name} ${exercise.sets}세트 x ${exercise.reps}회');
       }
       _selectedDate = DateTime.now();
       _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month);
@@ -777,23 +883,33 @@ class _MyHomePageState extends State<MyHomePage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
-            final weekdayList = ['월', '화', '수', '목', '금', '토', '일'].where((day) => !_weekendSkipped || !['토', '일'].contains(day)).toList();
+            final weekdayList = ['월', '화', '수', '목', '금', '토', '일']
+                .where((day) => !_weekendSkipped || !['토', '일'].contains(day))
+                .toList();
             final red = Theme.of(context).colorScheme.primary;
 
             return AlertDialog(
               backgroundColor: Colors.white,
               surfaceTintColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
               title: Row(
                 children: [
                   const Expanded(
                     child: Text(
                       '요일별 운동 설정',
-                      style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Text('주말 생략', style: TextStyle(fontSize: 12, color: Colors.black87)),
+                  const Text(
+                    '주말 생략',
+                    style: TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
                   Switch(
                     value: _weekendSkipped,
                     activeColor: Colors.white,
@@ -818,16 +934,21 @@ class _MyHomePageState extends State<MyHomePage> {
                       children: [
                         const SizedBox(height: 4),
                         ...weekdayList.map((day) {
-                          final isDisabled = _weekendSkipped && ['토', '일'].contains(day);
-                          final routineId = _workoutProvider.weekdayRoutineIds[day];
-                          final hasSelection = routineId != null && routineId.isNotEmpty;
+                          final isDisabled =
+                              _weekendSkipped && ['토', '일'].contains(day);
+                          final routineId =
+                              _workoutProvider.weekdayRoutineIds[day];
+                          final hasSelection =
+                              routineId != null && routineId.isNotEmpty;
                           return Opacity(
                             opacity: isDisabled ? 0.45 : 1.0,
                             child: Container(
                               margin: const EdgeInsets.only(bottom: 10),
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: isDisabled ? Colors.grey.shade200 : Colors.white,
+                                color: isDisabled
+                                    ? Colors.grey.shade200
+                                    : Colors.white,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: Colors.grey.shade300),
                               ),
@@ -835,26 +956,68 @@ class _MyHomePageState extends State<MyHomePage> {
                                 children: [
                                   SizedBox(
                                     width: 56,
-                                    child: Text(day, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                                    child: Text(
+                                      day,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
                                   ),
                                   Expanded(
                                     child: DropdownButtonFormField<String>(
                                       value: hasSelection ? routineId : null,
                                       dropdownColor: Colors.white,
-                                      style: const TextStyle(color: Colors.black87),
+                                      style: const TextStyle(
+                                        color: Colors.black87,
+                                      ),
                                       iconEnabledColor: Colors.black54,
-                                      decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 8)),
+                                      decoration: const InputDecoration(
+                                        border: OutlineInputBorder(),
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                        ),
+                                      ),
                                       items: [
-                                        const DropdownMenuItem<String>(value: null, child: Text('선택 안 함', style: TextStyle(color: Colors.black87))),
-                                        ..._workoutProvider.routines.map((routine) => DropdownMenuItem<String>(value: routine.id, child: Text(routine.name, style: const TextStyle(color: Colors.black87)))).toList(),
+                                        const DropdownMenuItem<String>(
+                                          value: null,
+                                          child: Text(
+                                            '선택 안 함',
+                                            style: TextStyle(
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                        ..._workoutProvider.routines
+                                            .map(
+                                              (routine) =>
+                                                  DropdownMenuItem<String>(
+                                                    value: routine.id,
+                                                    child: Text(
+                                                      routine.name,
+                                                      style: const TextStyle(
+                                                        color: Colors.black87,
+                                                      ),
+                                                    ),
+                                                  ),
+                                            )
+                                            .toList(),
                                       ],
                                       onChanged: isDisabled
                                           ? null
                                           : (value) {
                                               if (value == null) {
-                                                _workoutProvider.assignRoutineToWeekday(day, '');
+                                                _workoutProvider
+                                                    .assignRoutineToWeekday(
+                                                      day,
+                                                      '',
+                                                    );
                                               } else {
-                                                _workoutProvider.assignRoutineToWeekday(day, value);
+                                                _workoutProvider
+                                                    .assignRoutineToWeekday(
+                                                      day,
+                                                      value,
+                                                    );
                                               }
                                               setDialogState(() {});
                                               setState(() {});
@@ -878,7 +1041,9 @@ class _MyHomePageState extends State<MyHomePage> {
                       backgroundColor: red,
                       foregroundColor: Colors.white,
                       minimumSize: const Size(132, 44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
                     ),
                     onPressed: () {
                       if (_weekendSkipped) {
@@ -906,35 +1071,93 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  bool _isTodayWorkoutComplete() {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    if (routine == null || routine.exercises.isEmpty) return false;
+    return routine.exercises.every(
+      (exercise) => _isExerciseCompleted(exercise.name),
+    );
+  }
+
+  List<WorkoutRecord> _completedWorkoutRecords() {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    if (routine == null) return const [];
+    final now = DateTime.now();
+    return routine.exercises
+        .where((exercise) {
+          if (_isExerciseCompleted(exercise.name)) return true;
+          if (exercise.type == '유산소') {
+            final remaining =
+                _cardioRemainingSeconds[exercise.name] ?? exercise.cardioSeconds;
+            return remaining < exercise.cardioSeconds;
+          }
+          final progress = _exerciseSetProgress[exercise.name];
+          return progress?.any((value) => value != null) ?? false;
+        })
+        .map(
+          (exercise) => WorkoutRecord(
+            exercise: exercise.name,
+            weight: exercise.weight,
+            date: now,
+          ),
+        )
+        .toList();
+  }
+
   void _confirmFinishWorkout() {
+    if (_isTodayWorkoutComplete()) {
+      _finishWorkout();
+      return;
+    }
+
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
           backgroundColor: Colors.white,
-          title: const Text('운동 종료', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w700)),
-          content: const Text('정말로 운동을 마치시겠습니까?', style: TextStyle(color: Colors.black87)),
+          title: const Text(
+            '운동 종료',
+            style: TextStyle(
+              color: Colors.black87,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: const Text(
+            '아직 끝내지 않은 운동이 있습니다. 그래도 종료하시겠습니까?',
+            style: TextStyle(color: Colors.black87),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('취소', style: TextStyle(color: Colors.black87)),
+              child: const Text('아니요', style: TextStyle(color: Colors.black87)),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(dialogContext);
-                setState(() {
-                  _isWorkoutMode = false;
-                  _isPlaying = false;
-                  _isResting = false;
-                });
+                await _finishWorkout();
               },
               style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('운동 종료'),
+              child: const Text('예'),
             ),
           ],
         );
       },
     );
+  }
+
+  Future<void> _finishWorkout() async {
+    _stopRestTimer();
+    _cardioTimers.forEach((_, timer) => timer?.cancel());
+    await _workoutProvider.saveCompletedWorkout(
+      DateTime.now(),
+      _completedWorkoutRecords(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _isWorkoutMode = false;
+      _isPlaying = false;
+      _cardioRunning.updateAll((_, __) => false);
+    });
   }
 
   @override
@@ -986,16 +1209,29 @@ class _MyHomePageState extends State<MyHomePage> {
                             setState(() {});
                           },
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-                            child: Text(name, style: const TextStyle(color: Colors.black87)),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 6,
+                            ),
+                            child: Text(
+                              name,
+                              style: const TextStyle(color: Colors.black87),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 2),
                         IconButton(
-                          constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                          constraints: const BoxConstraints(
+                            minWidth: 24,
+                            minHeight: 24,
+                          ),
                           splashRadius: 12,
                           padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.close, size: 16, color: Colors.black54),
+                          icon: const Icon(
+                            Icons.close,
+                            size: 16,
+                            color: Colors.black54,
+                          ),
                           onPressed: () => _removeDraftRoutineChip(index),
                         ),
                       ],
@@ -1017,16 +1253,29 @@ class _MyHomePageState extends State<MyHomePage> {
                           borderRadius: BorderRadius.circular(999),
                           onTap: () => _loadRoutine(routine.id),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-                            child: Text(routine.name, style: const TextStyle(color: Colors.black87)),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 6,
+                            ),
+                            child: Text(
+                              routine.name,
+                              style: const TextStyle(color: Colors.black87),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 2),
                         IconButton(
-                          constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                          constraints: const BoxConstraints(
+                            minWidth: 24,
+                            minHeight: 24,
+                          ),
                           splashRadius: 12,
                           padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.close, size: 16, color: Colors.black54),
+                          icon: const Icon(
+                            Icons.close,
+                            size: 16,
+                            color: Colors.black54,
+                          ),
                           onPressed: () => _confirmDeleteRoutine(routine.id),
                         ),
                       ],
@@ -1083,7 +1332,10 @@ class _MyHomePageState extends State<MyHomePage> {
             onPressed: _saveRoutine,
             icon: const Icon(Icons.save),
             label: const Text('루틴 저장'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.red.shade900),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.red.shade900,
+            ),
           ),
         ],
       ),
@@ -1093,7 +1345,8 @@ class _MyHomePageState extends State<MyHomePage> {
         plansFor: _plansFor,
         onChangeMonth: _changeMonth,
         onSelectDate: _onSelectDate,
-        todayRoutineSummary: _workoutProvider
+        todayRoutineSummary:
+            _workoutProvider
                 .getRoutineForDate(_selectedDate)
                 ?.exercises
                 .map((exercise) => exercise.name)
@@ -1101,8 +1354,9 @@ class _MyHomePageState extends State<MyHomePage> {
             const [],
         onOpenWeekdaySettings: _showWeekdayRoutineDialog,
         hasRoutineForDate: _hasRoutineIndicatorForDate,
+        isCompletedForDate: _workoutProvider.isWorkoutCompletedOn,
       ),
-      ProgressPage(records: _records),
+      ProgressPage(records: _workoutProvider.workoutRecords),
       SettingsPage(
         autoSync: _autoSync,
         restSeconds: _restSeconds,
@@ -1115,7 +1369,7 @@ class _MyHomePageState extends State<MyHomePage> {
       color: Colors.red.shade800,
       shape: const CircularNotchedRectangle(),
       notchMargin: 0,
-      height: 40,
+      height: 64,
       child: Padding(
         padding: EdgeInsets.zero,
         child: Row(
@@ -1124,7 +1378,7 @@ class _MyHomePageState extends State<MyHomePage> {
           children: [
             IconButton(
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 48, height: 40),
+              constraints: const BoxConstraints.tightFor(width: 48, height: 64),
               splashColor: Colors.transparent,
               highlightColor: Colors.transparent,
               hoverColor: Colors.transparent,
@@ -1134,7 +1388,7 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             IconButton(
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 48, height: 40),
+              constraints: const BoxConstraints.tightFor(width: 48, height: 64),
               splashColor: Colors.transparent,
               highlightColor: Colors.transparent,
               hoverColor: Colors.transparent,
@@ -1145,7 +1399,7 @@ class _MyHomePageState extends State<MyHomePage> {
             const SizedBox(width: 40),
             IconButton(
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 48, height: 40),
+              constraints: const BoxConstraints.tightFor(width: 48, height: 64),
               splashColor: Colors.transparent,
               highlightColor: Colors.transparent,
               hoverColor: Colors.transparent,
@@ -1155,7 +1409,7 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             IconButton(
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 48, height: 40),
+              constraints: const BoxConstraints.tightFor(width: 48, height: 64),
               splashColor: Colors.transparent,
               highlightColor: Colors.transparent,
               hoverColor: Colors.transparent,
@@ -1174,9 +1428,11 @@ class _MyHomePageState extends State<MyHomePage> {
       child: FloatingActionButton(
         onPressed: _isWorkoutMode
             ? _toggleWorkoutPlaying
-            : (_exerciseSetProgress.isNotEmpty || _finalizedSetIndexes.isNotEmpty || _cardioRemainingSeconds.isNotEmpty
-                ? _toggleWorkoutPlaying
-                : _toggleWorkoutMode),
+            : (_exerciseSetProgress.isNotEmpty ||
+                      _finalizedSetIndexes.isNotEmpty ||
+                      _cardioRemainingSeconds.isNotEmpty
+                  ? _toggleWorkoutPlaying
+                  : _toggleWorkoutMode),
         backgroundColor: Colors.white,
         foregroundColor: Colors.red.shade700,
         elevation: 4,
@@ -1242,15 +1498,22 @@ class _MyHomePageState extends State<MyHomePage> {
                               ),
                             ),
                             const SizedBox(height: 20),
-                            ...todayRoutine.exercises.asMap().entries.map((entry) {
+                            ...todayRoutine.exercises.asMap().entries.map((
+                              entry,
+                            ) {
                               final exerciseIndex = entry.key;
                               final exercise = entry.value;
-                              final isExerciseLocked = ! _isExerciseUnlocked(exercise.name);
+                              final isExerciseLocked = !_isExerciseUnlocked(
+                                exercise.name,
+                              );
 
                               if (exercise.type == '유산소') {
                                 final goalSeconds = exercise.cardioSeconds;
-                                final remainingSeconds = _cardioRemainingSeconds[exercise.name] ?? goalSeconds;
-                                final isRunning = _cardioRunning[exercise.name] ?? false;
+                                final remainingSeconds =
+                                    _cardioRemainingSeconds[exercise.name] ??
+                                    goalSeconds;
+                                final isRunning =
+                                    _cardioRunning[exercise.name] ?? false;
 
                                 return Opacity(
                                   opacity: isExerciseLocked ? 0.45 : 1.0,
@@ -1261,10 +1524,13 @@ class _MyHomePageState extends State<MyHomePage> {
                                     decoration: BoxDecoration(
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(color: Colors.grey.shade200),
+                                      border: Border.all(
+                                        color: Colors.grey.shade200,
+                                      ),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           exercise.name,
@@ -1277,28 +1543,53 @@ class _MyHomePageState extends State<MyHomePage> {
                                         const SizedBox(height: 12),
                                         Text(
                                           '목표시간: ${_formatDuration(goalSeconds)}',
-                                          style: const TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600),
+                                          style: const TextStyle(
+                                            color: Colors.black87,
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
                                         const SizedBox(height: 10),
                                         Text(
                                           '남은시간: ${_formatDuration(remainingSeconds)}',
-                                          style: const TextStyle(color: Colors.red, fontSize: 20, fontWeight: FontWeight.w800),
+                                          style: const TextStyle(
+                                            color: Colors.red,
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.w800,
+                                          ),
                                         ),
                                         const SizedBox(height: 12),
                                         Row(
                                           children: [
                                             Expanded(
                                               child: ElevatedButton(
-                                                onPressed: isExerciseLocked ? null : () => _startCardioTimer(exercise.name),
-                                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade600, foregroundColor: Colors.white),
+                                                onPressed: isExerciseLocked
+                                                    ? null
+                                                    : () => _startCardioTimer(
+                                                        exercise.name,
+                                                      ),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor:
+                                                      Colors.red.shade600,
+                                                  foregroundColor: Colors.white,
+                                                ),
                                                 child: const Text('start'),
                                               ),
                                             ),
                                             const SizedBox(width: 8),
                                             Expanded(
                                               child: ElevatedButton(
-                                                onPressed: isExerciseLocked ? null : () => _pauseCardioTimer(exercise.name),
-                                                style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade200, foregroundColor: Colors.black87),
+                                                onPressed: isExerciseLocked
+                                                    ? null
+                                                    : () => _pauseCardioTimer(
+                                                        exercise.name,
+                                                      ),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor:
+                                                      Colors.grey.shade200,
+                                                  foregroundColor:
+                                                      Colors.black87,
+                                                ),
                                                 child: const Text('rest'),
                                               ),
                                             ),
@@ -1310,8 +1601,13 @@ class _MyHomePageState extends State<MyHomePage> {
                                 );
                               }
 
-                              final progress = _exerciseSetProgress[exercise.name] ??
-                                  List<int>.filled(exercise.sets, exercise.reps, growable: false);
+                              final progress =
+                                  _exerciseSetProgress[exercise.name] ??
+                                  List<int>.filled(
+                                    exercise.sets,
+                                    exercise.reps,
+                                    growable: false,
+                                  );
 
                               return Opacity(
                                 opacity: isExerciseLocked ? 0.45 : 1.0,
@@ -1322,10 +1618,13 @@ class _MyHomePageState extends State<MyHomePage> {
                                   decoration: BoxDecoration(
                                     color: Colors.white,
                                     borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(color: Colors.grey.shade200),
+                                    border: Border.all(
+                                      color: Colors.grey.shade200,
+                                    ),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
@@ -1355,18 +1654,40 @@ class _MyHomePageState extends State<MyHomePage> {
                                         child: ListView.separated(
                                           scrollDirection: Axis.horizontal,
                                           itemCount: exercise.sets,
-                                          separatorBuilder: (_, __) => const SizedBox(width: 8),
+                                          separatorBuilder: (_, __) =>
+                                              const SizedBox(width: 8),
                                           itemBuilder: (context, index) {
                                             final value = progress[index];
                                             final isEmpty = value == null;
-                                            final isBlocked = isExerciseLocked || (index > 0 && !_isSetFinalized(exercise.name, index - 1));
-                                            final isFinalized = _isSetFinalized(exercise.name, index);
+                                            final isBlocked =
+                                                isExerciseLocked ||
+                                                (index > 0 &&
+                                                    !_isSetFinalized(
+                                                      exercise.name,
+                                                      index - 1,
+                                                    ));
+                                            final isFinalized = _isSetFinalized(
+                                              exercise.name,
+                                              index,
+                                            );
 
                                             return GestureDetector(
-                                              onTap: isBlocked ? null : () => _recordSetValue(exercise.name, index),
-                                              onLongPress: isExerciseLocked ? null : () => _resetSetValue(exercise.name, index),
+                                              onTap: isBlocked
+                                                  ? null
+                                                  : () => _recordSetValue(
+                                                      exercise.name,
+                                                      index,
+                                                    ),
+                                              onLongPress: isExerciseLocked
+                                                  ? null
+                                                  : () => _resetSetValue(
+                                                      exercise.name,
+                                                      index,
+                                                    ),
                                               child: AnimatedContainer(
-                                                duration: const Duration(milliseconds: 180),
+                                                duration: const Duration(
+                                                  milliseconds: 180,
+                                                ),
                                                 width: 42,
                                                 height: 42,
                                                 decoration: BoxDecoration(
@@ -1374,12 +1695,19 @@ class _MyHomePageState extends State<MyHomePage> {
                                                   border: Border.all(
                                                     color: isBlocked
                                                         ? Colors.grey.shade300
-                                                        : (isEmpty ? Colors.black54 : (isFinalized ? Colors.red : Colors.black54)),
+                                                        : (isEmpty
+                                                              ? Colors.black54
+                                                              : (isFinalized
+                                                                    ? Colors.red
+                                                                    : Colors
+                                                                          .black54)),
                                                     width: 1.5,
                                                   ),
                                                   color: isBlocked
                                                       ? Colors.grey.shade100
-                                                      : (isFinalized ? Colors.red : Colors.white),
+                                                      : (isFinalized
+                                                            ? Colors.red
+                                                            : Colors.white),
                                                 ),
                                                 child: isEmpty
                                                     ? const SizedBox()
@@ -1387,9 +1715,13 @@ class _MyHomePageState extends State<MyHomePage> {
                                                         child: Text(
                                                           value.toString(),
                                                           style: TextStyle(
-                                                            color: isFinalized ? Colors.white : Colors.black87,
+                                                            color: isFinalized
+                                                                ? Colors.white
+                                                                : Colors
+                                                                      .black87,
                                                             fontSize: 13,
-                                                            fontWeight: FontWeight.w700,
+                                                            fontWeight:
+                                                                FontWeight.w700,
                                                           ),
                                                         ),
                                                       ),
@@ -1414,7 +1746,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.red.shade700,
                                   foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1422,21 +1756,29 @@ class _MyHomePageState extends State<MyHomePage> {
                               const SizedBox(height: 16),
                               Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                  horizontal: 16,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.red.shade50,
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.red.shade200),
+                                  border: Border.all(
+                                    color: Colors.red.shade200,
+                                  ),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
-                                    const Text(
-                                      '휴식',
-                                      style: TextStyle(
-                                        color: Colors.black87,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
+                                    const Expanded(
+                                      child: Text(
+                                        '휴식',
+                                        style: TextStyle(
+                                          color: Colors.black87,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ),
                                     Text(
@@ -1446,6 +1788,24 @@ class _MyHomePageState extends State<MyHomePage> {
                                         fontSize: 18,
                                         fontWeight: FontWeight.w700,
                                       ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () => setState(_stopRestTimer),
+                                      padding: EdgeInsets.zero,
+                                      constraints:
+                                          const BoxConstraints.tightFor(
+                                            width: 32,
+                                            height: 32,
+                                          ),
+                                      splashColor: Colors.transparent,
+                                      highlightColor: Colors.transparent,
+                                      hoverColor: Colors.transparent,
+                                      icon: const Icon(
+                                        Icons.close,
+                                        size: 20,
+                                        color: Colors.black54,
+                                      ),
+                                      tooltip: '휴식 종료',
                                     ),
                                   ],
                                 ),
@@ -1459,10 +1819,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   child: SingleChildScrollView(child: pages[_selectedIndex]),
                 ),
         ),
-        floatingActionButton: Padding(
-          padding: EdgeInsets.zero,
-          child: playFab,
-        ),
+        floatingActionButton: Padding(padding: EdgeInsets.zero, child: playFab),
         floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
         bottomNavigationBar: bottomBar,
       ),

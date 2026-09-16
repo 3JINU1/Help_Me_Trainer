@@ -10,14 +10,43 @@ class ExerciseCategory {
 }
 
 class WorkoutRecord {
-  WorkoutRecord({required this.exercise, required this.weight, required this.date});
+  WorkoutRecord({
+    required this.exercise,
+    required this.weight,
+    required this.date,
+  });
+
+  factory WorkoutRecord.fromJson(Map<String, dynamic> json) {
+    return WorkoutRecord(
+      exercise: json['exercise'] as String,
+      weight: (json['weight'] as num?)?.toInt() ?? 0,
+      date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
+    );
+  }
+
   final String exercise;
   final int weight;
   final DateTime date;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'exercise': exercise,
+      'weight': weight,
+      'date': date.toIso8601String(),
+    };
+  }
 }
 
 class SplitSession {
-  SplitSession({required this.type, this.exercise, this.weight, this.sets, this.reps, this.restSeconds = 60, this.cardioSeconds = 0});
+  SplitSession({
+    required this.type,
+    this.exercise,
+    this.weight,
+    this.sets,
+    this.reps,
+    this.restSeconds = 60,
+    this.cardioSeconds = 0,
+  });
 
   String type;
   String? exercise;
@@ -69,14 +98,21 @@ class RoutineExercise {
 }
 
 class WorkoutRoutine {
-  WorkoutRoutine({required this.id, required this.name, required this.exercises});
+  WorkoutRoutine({
+    required this.id,
+    required this.name,
+    required this.exercises,
+  });
 
   factory WorkoutRoutine.fromJson(Map<String, dynamic> json) {
     return WorkoutRoutine(
       id: json['id'] as String,
       name: json['name'] as String,
       exercises: (json['exercises'] as List<dynamic>)
-          .map((exercise) => RoutineExercise.fromJson(exercise as Map<String, dynamic>))
+          .map(
+            (exercise) =>
+                RoutineExercise.fromJson(exercise as Map<String, dynamic>),
+          )
           .toList(),
     );
   }

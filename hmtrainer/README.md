@@ -1,17 +1,31 @@
 # hmtrainer
 
-A new Flutter project.
+Help_Me_Trainer의 Flutter 앱입니다.
 
-## Getting Started
+## 0.1.0
 
-This project is a starting point for a Flutter application.
+이 버전은 기본 기능 중심의 운동 트레이너 MVP입니다.
 
-A few resources to get you started if this is your first Flutter project:
+### 포함 기능
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- 운동 루틴 생성, 로드, 삭제
+- 오늘/요일/날짜별 루틴 연결
+- 세트별 운동 진행 기록
+- 휴식 시간 및 유산소 시간 타이머
+- 오늘 운동 완료 처리
+- 캘린더 기반 운동 일정 확인
+- 운동별 추세 및 그래프 시각화
+- SharedPreferences 기반 로컬 저장
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### 실행
+
+```bash
+flutter pub get
+flutter run
+```
+
+### 개발 상태
+
+- 앱 구조와 핵심 루틴 기능 구현 완료
+- 운동 기록 및 그래프 확인 기능 구현 완료
+- 다음 단계: UI 정리, 기능 다듬기, 사용자 경험 개선
