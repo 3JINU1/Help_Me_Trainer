@@ -76,11 +76,115 @@ class ExercisePage extends StatefulWidget {
 class _ExercisePageState extends State<ExercisePage> {
   final Map<String, TextEditingController> _cardioTimeControllers = {};
 
+  static const _filterGroups = <String, List<String>>{
+    'Equipment': [
+      'Dumbbell',
+      'Barbell',
+      'Cable',
+      'Machine',
+      'Smith Machine',
+      'Kettlebell',
+      'Band / Resistance Band',
+      'Bodyweight',
+    ],
+    'Posture & Position': [
+      'Seated',
+      'Standing',
+      'Bent-over',
+      'Incline',
+      'Decline',
+      'Lying / Prone',
+      'Supine',
+      'Spider',
+      'Single-Arm / One-Arm',
+      'Half-Kneeling',
+    ],
+    'Grip': [
+      'Pronated (Overhand)',
+      'Supinated (Underhand)',
+      'Neutral',
+      'Wide / Narrow (Close)',
+      'Reverse',
+    ],
+    'Movement Pattern & Execution': [
+      'Press / Push',
+      'Pull / Row',
+      'Raise / Fly',
+      'Curl / Extension',
+      'Pause / Dead-stop',
+      'Deficit',
+    ],
+  };
+
   String _formatCardioDuration(int totalSeconds) {
     final hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
     final minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
     final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
     return '$hours:$minutes:$seconds';
+  }
+
+  bool _matchesExerciseSearch(String exercise, String query) {
+    final normalizedExercise = exercise
+        .replaceAll(RegExp(r'\s+'), '')
+        .toLowerCase();
+    final normalizedQuery = query.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+    if (normalizedQuery.isEmpty || normalizedExercise.contains(normalizedQuery)) {
+      return true;
+    }
+
+    var queryIndex = 0;
+    for (final character in normalizedExercise.split('')) {
+      if (queryIndex < normalizedQuery.length &&
+          character == normalizedQuery[queryIndex]) {
+        queryIndex++;
+        if (queryIndex == normalizedQuery.length) return true;
+      }
+    }
+
+    if (normalizedQuery.length >= 2) {
+      final exerciseCharacters = normalizedExercise.split('');
+      for (var start = 0; start < exerciseCharacters.length; start++) {
+        for (var length = normalizedQuery.length - 1;
+            length <= normalizedQuery.length + 1;
+            length++) {
+          final end = start + length;
+          if (end <= exerciseCharacters.length &&
+              _editDistanceAtMostOne(
+                normalizedQuery,
+                exerciseCharacters.sublist(start, end).join(),
+              )) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  bool _editDistanceAtMostOne(String first, String second) {
+    if ((first.length - second.length).abs() > 1) return false;
+    var differences = 0;
+    var firstIndex = 0;
+    var secondIndex = 0;
+    while (firstIndex < first.length && secondIndex < second.length) {
+      if (first[firstIndex] == second[secondIndex]) {
+        firstIndex++;
+        secondIndex++;
+        continue;
+      }
+      differences++;
+      if (differences > 1) return false;
+      if (first.length > second.length) {
+        firstIndex++;
+      } else if (second.length > first.length) {
+        secondIndex++;
+      } else {
+        firstIndex++;
+        secondIndex++;
+      }
+    }
+    differences += (first.length - firstIndex) + (second.length - secondIndex);
+    return differences <= 1;
   }
 
   TextEditingController _cardioTimeControllerFor(int targetIndex, int sessionIndex) {
@@ -102,7 +206,7 @@ class _ExercisePageState extends State<ExercisePage> {
     required String title,
   }) {
     final searchController = TextEditingController();
-    var dumbbellOnly = false;
+    final activeFilters = <String>{};
     final exerciseSource = session.type == '유산소' ? widget.cardioExerciseNames : widget.exerciseNames;
 
     showDialog<void>(
@@ -111,28 +215,68 @@ class _ExercisePageState extends State<ExercisePage> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (innerContext, setDialogState) {
-            final filtered = exerciseSource.where((exercise) {
-              final query = searchController.text.trim().toLowerCase();
-              final item = exercise.toLowerCase();
-              final matchesQuery = query.isEmpty || item.contains(query);
-              final matchesDumbbell = !dumbbellOnly || item.contains('덤벨');
-              return matchesQuery && matchesDumbbell;
-            }).toList();
-
+            final mediaQuery = MediaQuery.of(innerContext);
+            final visibleHeight = mediaQuery.size.height -
+                mediaQuery.viewInsets.bottom;
             return AlertDialog(
               backgroundColor: Colors.white,
               surfaceTintColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               title: Text(
                 title,
-                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               contentTextStyle: const TextStyle(color: Colors.black87),
               content: SizedBox(
                 width: double.maxFinite,
+                height: (visibleHeight * 0.68).clamp(280.0, 460.0),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 116),
+                      child: SingleChildScrollView(
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: _filterGroups.values
+                              .expand((filters) => filters)
+                              .map((filter) {
+                            final selected = activeFilters.contains(filter);
+                            return FilterChip(
+                              label: Text(
+                                filter,
+                                style: TextStyle(
+                                  color: selected
+                                      ? Colors.white
+                                      : Colors.red.shade900,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              selected: selected,
+                              onSelected: (value) {
+                                setDialogState(() {
+                                  if (value) {
+                                    activeFilters.add(filter);
+                                  } else {
+                                    activeFilters.remove(filter);
+                                  }
+                                });
+                              },
+                              backgroundColor: Colors.red.shade50,
+                              selectedColor: Colors.red,
+                              checkmarkColor: Colors.white,
+                              side: BorderSide(color: Colors.red.shade200),
+                              visualDensity: VisualDensity.compact,
+                            );
+                          })
+                              .toList(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(
@@ -148,43 +292,41 @@ class _ExercisePageState extends State<ExercisePage> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        FilterChip(
-                          label: const Text('덤벨'),
-                          selected: dumbbellOnly,
-                          onSelected: (_) {
-                            setDialogState(() {
-                              dumbbellOnly = !dumbbellOnly;
-                            });
-                          },
-                          selectedColor: Colors.red.shade100,
-                          checkmarkColor: Colors.red.shade900,
-                          labelStyle: TextStyle(
-                            color: dumbbellOnly ? Colors.red.shade900 : Colors.black87,
-                          ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.maxFinite,
-                      height: 320,
-                      child: ListView.separated(
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final exercise = filtered[index];
-                          return ListTile(
-                            title: Text(exercise, style: const TextStyle(color: Colors.black87)),
-                            selected: session.exercise == exercise,
-                            selectedTileColor: Colors.red.shade50,
-                            onTap: () {
-                              widget.onSetSplitSessionExercise(
-                                widget.selectedSplitTargetIndex,
-                                sessionIndex,
-                                exercise,
+                    Expanded(
+                      child: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: searchController,
+                        builder: (context, value, child) {
+                          final filtered = exerciseSource.where((exercise) {
+                            final matchesQuery = _matchesExerciseSearch(
+                              exercise,
+                              value.text.trim(),
+                            );
+                            return matchesQuery;
+                          }).toList();
+
+                          return ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final exercise = filtered[index];
+                              return ListTile(
+                                title: Text(
+                                  exercise,
+                                  style: const TextStyle(color: Colors.black87),
+                                ),
+                                selected: session.exercise == exercise,
+                                selectedTileColor: Colors.red.shade50,
+                                onTap: () {
+                                  widget.onSetSplitSessionExercise(
+                                    widget.selectedSplitTargetIndex,
+                                    sessionIndex,
+                                    exercise,
+                                  );
+                                  Navigator.pop(dialogContext);
+                                },
                               );
-                              Navigator.pop(dialogContext);
                             },
                           );
                         },

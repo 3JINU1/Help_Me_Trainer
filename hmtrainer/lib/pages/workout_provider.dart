@@ -59,13 +59,8 @@ class WorkoutProvider {
       }
     }
 
-    final dateEntries = prefs.getStringList('date_routine_ids') ?? <String>[];
-    for (final entry in dateEntries) {
-      final parts = entry.split('|');
-      if (parts.length == 2) {
-        _dateRoutineIds[parts[0]] = parts[1];
-      }
-    }
+    _dateRoutineIds.clear();
+    await prefs.remove('date_routine_ids');
   }
 
   Future<void> saveRoutine(WorkoutRoutine routine) async {
@@ -103,7 +98,17 @@ class WorkoutProvider {
   }
 
   bool isWorkoutCompletedOn(DateTime date) {
-    return _completedWorkoutDates.contains(_normalizeDate(date));
+    return getRoutineForDate(date) != null &&
+        _completedWorkoutDates.contains(_normalizeDate(date));
+  }
+
+  Future<void> clearCompletedWorkout(DateTime date) async {
+    final dateKey = _normalizeDate(date);
+    _completedWorkoutDates.remove(dateKey);
+    _workoutRecords.removeWhere(
+      (record) => _normalizeDate(record.date) == dateKey,
+    );
+    await _persistToStorage();
   }
 
   Future<void> saveCompletedWorkout(

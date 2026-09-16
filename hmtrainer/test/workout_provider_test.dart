@@ -38,6 +38,23 @@ void main() {
     expect(provider.getRoutineForWeekday('월')?.id, routine.id);
   });
 
+  test('does not show a weekday routine on an unassigned weekday', () {
+    final provider = WorkoutProvider();
+    final routine = WorkoutRoutine(
+      id: 'weekday-routine',
+      name: '월요일 루틴',
+      exercises: [
+        RoutineExercise(name: '스쿼트', sets: 3, reps: 10, weight: 60),
+      ],
+    );
+
+    provider.addRoutine(routine);
+    provider.assignRoutineToWeekday('월', routine.id);
+
+    expect(provider.getRoutineForDate(DateTime(2026, 9, 21))?.id, routine.id);
+    expect(provider.getRoutineForDate(DateTime(2026, 9, 23)), isNull);
+  });
+
   test('preserves cardio session metadata for a saved routine', () {
     final provider = WorkoutProvider();
     final routine = WorkoutRoutine(
@@ -68,6 +85,16 @@ void main() {
     final date = DateTime(2026, 9, 10);
     final record = WorkoutRecord(exercise: '스쿼트', weight: 100, date: date);
 
+    await provider.addRoutine(
+      WorkoutRoutine(
+        id: 'completed-routine',
+        name: '완료 루틴',
+        exercises: [
+          RoutineExercise(name: '스쿼트', sets: 3, reps: 10, weight: 100),
+        ],
+      ),
+    );
+    await provider.assignRoutineToWeekday('목', 'completed-routine');
     await provider.saveCompletedWorkout(date, [record]);
 
     expect(provider.workoutRecords.single.exercise, '스쿼트');

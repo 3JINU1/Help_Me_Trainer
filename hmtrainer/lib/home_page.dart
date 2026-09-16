@@ -685,11 +685,23 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  void _resetRoutineEditor({String? title}) {
+    _selectedRoutineId = null;
+    _selectedSplitTargetIndex = 0;
+    _routineTitleController.text = title ?? '';
+    _splitTargets
+      ..clear()
+      ..add('상체');
+    _splitTargetSessions
+      ..clear()
+      ..add(<SplitSession>[]);
+  }
+
   void _createDraftRoutineChip() {
     final draftName = '루틴 ${_draftRoutineNames.length + 1}';
     _draftRoutineNames.add(draftName);
     _selectedDraftRoutineIndex = _draftRoutineNames.length - 1;
-    _routineTitleController.text = draftName;
+    _resetRoutineEditor(title: draftName);
     setState(() {});
   }
 
@@ -700,6 +712,9 @@ class _MyHomePageState extends State<MyHomePage> {
     } else if (_selectedDraftRoutineIndex != null &&
         _selectedDraftRoutineIndex! > index) {
       _selectedDraftRoutineIndex = _selectedDraftRoutineIndex! - 1;
+    }
+    if (_draftRoutineNames.isEmpty) {
+      _resetRoutineEditor();
     }
     setState(() {});
   }
@@ -752,7 +767,6 @@ class _MyHomePageState extends State<MyHomePage> {
     );
     _workoutProvider.saveRoutine(routine);
     _workoutProvider.assignRoutineToWeekday(_selectedWeekday, routine.id);
-    _workoutProvider.assignRoutineToDate(_selectedDate, routine.id);
     _selectedRoutineId = routine.id;
 
     if (_selectedDraftRoutineIndex != null &&
@@ -761,6 +775,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _selectedDraftRoutineIndex = null;
     }
 
+    _resetRoutineEditor();
     _showTopMessage('$title 루틴이 저장되었습니다.');
     setState(() {});
   }
@@ -1160,6 +1175,41 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  void _confirmResetCompletedWorkout() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          title: const Text(
+            '완료한 루틴 초기화',
+            style: TextStyle(color: Colors.black87),
+          ),
+          content: const Text(
+            '완료한 루틴을 초기화하시겠습니까?',
+            style: TextStyle(color: Colors.black87),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                await _workoutProvider.clearCompletedWorkout(_selectedDate);
+                if (mounted) setState(() {});
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('초기화'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _restTimer?.cancel();
@@ -1352,6 +1402,9 @@ class _MyHomePageState extends State<MyHomePage> {
                 .map((exercise) => exercise.name)
                 .toList() ??
             const [],
+        routineName: _workoutProvider.getRoutineForDate(_selectedDate)?.name,
+        isCompleted: _workoutProvider.isWorkoutCompletedOn(_selectedDate),
+        onResetCompletedWorkout: _confirmResetCompletedWorkout,
         onOpenWeekdaySettings: _showWeekdayRoutineDialog,
         hasRoutineForDate: _hasRoutineIndicatorForDate,
         isCompletedForDate: _workoutProvider.isWorkoutCompletedOn,
@@ -1486,9 +1539,10 @@ class _MyHomePageState extends State<MyHomePage> {
                           '오늘 설정된 루틴이 없습니다.',
                           style: TextStyle(color: Colors.black54, fontSize: 16),
                         )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                      : SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                             const Text(
                               '오늘 운동',
                               style: TextStyle(
@@ -1811,7 +1865,8 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ),
                               ),
                             ],
-                          ],
+                            ],
+                          ),
                         ),
                 )
               : Padding(
