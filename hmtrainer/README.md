@@ -46,6 +46,40 @@ flutter pub get
 flutter run
 ```
 
+## IPA 파일 만들기 및 설치
+
+### 1. iOS 릴리스 아카이브 생성
+
+```bash
+flutter build ipa --no-codesign
+```
+
+코드 서명을 하지 않은 경우 `.ipa` 대신 다음 아카이브가 생성됩니다.
+
+```text
+build/ios/archive/Runner.xcarchive
+```
+
+### 2. IPA 패키지 만들기
+
+```bash
+rm -rf /tmp/hmt-ipa
+mkdir -p /tmp/hmt-ipa/Payload
+cp -R build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app \
+	/tmp/hmt-ipa/Payload/
+cd /tmp/hmt-ipa
+zip -qr ~/Desktop/HMT.ipa Payload
+```
+
+### 3. 아이폰에 설치
+
+1. `HMT.ipa`를 AirDrop으로 아이폰에 전송합니다.
+2. 파일 앱에서 IPA 파일을 선택하고 공유합니다.
+3. 공유 대상에서 AltStore를 선택합니다.
+4. AltStore에서 Apple ID로 서명 후 설치합니다.
+
+코드 서명 없이 생성한 IPA는 AltStore 또는 Apple 개발자 인증서로 서명해야 설치할 수 있습니다.
+
 ### 개발 상태
 
 - 앱 구조와 핵심 루틴 기능 구현 완료

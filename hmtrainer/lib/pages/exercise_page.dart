@@ -1,5 +1,5 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models.dart';
 
@@ -121,6 +121,87 @@ class _ExercisePageState extends State<ExercisePage> {
     final minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
     final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
     return '$hours:$minutes:$seconds';
+  }
+
+  Future<void> _showNumberPicker({
+    required String title,
+    required int minimum,
+    required int maximum,
+    required int? value,
+    required ValueChanged<int> onChanged,
+  }) async {
+    var selectedValue = (value ?? minimum).clamp(minimum, maximum);
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (popupContext) {
+        return SafeArea(
+          top: false,
+          child: Container(
+            height: 300,
+            color: CupertinoColors.systemBackground.resolveFrom(context),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    CupertinoButton(
+                      onPressed: () => Navigator.pop(popupContext),
+                      child: const Text('취소'),
+                    ),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: CupertinoColors.label,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    CupertinoButton(
+                      onPressed: () {
+                        onChanged(selectedValue);
+                        Navigator.pop(popupContext);
+                      },
+                      child: const Text('완료'),
+                    ),
+                  ],
+                ),
+                Expanded(
+                  child: StatefulBuilder(
+                    builder: (context, setPickerState) {
+                      return CupertinoPicker(
+                        itemExtent: 44,
+                        scrollController: FixedExtentScrollController(
+                          initialItem: selectedValue - minimum,
+                        ),
+                        onSelectedItemChanged: (index) {
+                          setPickerState(() {
+                            selectedValue = minimum + index;
+                          });
+                        },
+                        children: [
+                          for (var number = minimum;
+                              number <= maximum;
+                              number++)
+                            Center(
+                              child: Text(
+                                '$number',
+                                style: const TextStyle(
+                                  color: CupertinoColors.label,
+                                  fontSize: 24,
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   bool _matchesExerciseSearch(String exercise, String query) {
@@ -348,6 +429,38 @@ class _ExercisePageState extends State<ExercisePage> {
     );
   }
 
+  Widget _numberPickerField({
+    required String label,
+    required int? value,
+    required String placeholder,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(color: Colors.black87),
+          filled: true,
+          fillColor: Colors.white,
+          border: const OutlineInputBorder(),
+          suffixIcon: const Icon(
+            Icons.unfold_more,
+            color: Colors.black54,
+          ),
+        ),
+        child: Text(
+          value?.toString() ?? placeholder,
+          style: TextStyle(
+            color: value == null ? Colors.black54 : Colors.black87,
+            fontSize: 16,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -360,10 +473,13 @@ class _ExercisePageState extends State<ExercisePage> {
         ),
         TextField(
           controller: widget.routineTitleController,
+          style: const TextStyle(color: Colors.black87),
+          cursorColor: Colors.red,
           decoration: const InputDecoration(
             filled: true,
             fillColor: Colors.white,
             hintText: '루틴 제목 입력',
+            hintStyle: TextStyle(color: Colors.black54),
             border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
           ),
         ),
@@ -483,82 +599,42 @@ class _ExercisePageState extends State<ExercisePage> {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: TextFormField(
-                            initialValue: session.sets?.toString() ?? '',
-                            keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            style: const TextStyle(color: Colors.black87),
-                            decoration: InputDecoration(
-                              labelText: '세트',
-                              labelStyle: const TextStyle(color: Colors.black87),
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: const OutlineInputBorder(),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(
-                                  color: (session.sets != null && (session.sets! < 1 || session.sets! > 10)) ? Colors.red : Colors.grey.shade300,
-                                  width: 1.5,
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(
-                                  color: (session.sets != null && (session.sets! < 1 || session.sets! > 10)) ? Colors.red : Colors.red.shade700,
-                                  width: 1.5,
-                                ),
+                          child: _numberPickerField(
+                            label: '세트',
+                            value: session.sets,
+                            placeholder: '선택',
+                            onTap: () => _showNumberPicker(
+                              title: '세트 선택',
+                              minimum: 1,
+                              maximum: 10,
+                              value: session.sets,
+                              onChanged: (value) =>
+                                  widget.onSetSplitSessionSets(
+                                widget.selectedSplitTargetIndex,
+                                sessionIndex,
+                                value,
                               ),
                             ),
-                            onChanged: (value) {
-                              final parsed = int.tryParse(value);
-                              if (parsed == null) {
-                                widget.onSetSplitSessionSets(widget.selectedSplitTargetIndex, sessionIndex, null);
-                                return;
-                              }
-                              widget.onSetSplitSessionSets(widget.selectedSplitTargetIndex, sessionIndex, parsed);
-                            },
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: TextFormField(
-                            initialValue: session.reps?.toString() ?? '',
-                            keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            style: const TextStyle(color: Colors.black87),
-                            decoration: InputDecoration(
-                              labelText: '반복',
-                              labelStyle: const TextStyle(color: Colors.black87),
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: const OutlineInputBorder(),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(
-                                  color: (session.reps != null && (session.reps! < 1 || session.reps! > 30)) ? Colors.red : Colors.grey.shade300,
-                                  width: 1.5,
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(
-                                  color: (session.reps != null && (session.reps! < 1 || session.reps! > 30)) ? Colors.red : Colors.red.shade700,
-                                  width: 1.5,
-                                ),
+                          child: _numberPickerField(
+                            label: '반복',
+                            value: session.reps,
+                            placeholder: '선택',
+                            onTap: () => _showNumberPicker(
+                              title: '반복 횟수 선택',
+                              minimum: 1,
+                              maximum: 30,
+                              value: session.reps,
+                              onChanged: (value) =>
+                                  widget.onSetSplitSessionReps(
+                                widget.selectedSplitTargetIndex,
+                                sessionIndex,
+                                value,
                               ),
                             ),
-                            onChanged: (value) {
-                              final parsed = int.tryParse(value);
-                              if (parsed == null) {
-                                widget.onSetSplitSessionReps(widget.selectedSplitTargetIndex, sessionIndex, null);
-                                return;
-                              }
-                              widget.onSetSplitSessionReps(widget.selectedSplitTargetIndex, sessionIndex, parsed);
-                            },
                           ),
                         ),
                       ],

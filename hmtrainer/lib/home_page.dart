@@ -27,6 +27,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isResting = false;
   int _restRemainingSeconds = 60;
   Timer? _restTimer;
+  Timer? _messageTimer;
   final Map<String, List<int?>> _exerciseSetProgress = {};
   final Map<String, Map<int, Timer?>> _setTouchTimers = {};
   final Map<String, Set<int>> _finalizedSetIndexes = {};
@@ -517,9 +518,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _showTopMessage(String message) {
     final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
+    _messageTimer?.cancel();
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
         content: Text(
           message,
           style: const TextStyle(
@@ -528,11 +530,21 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ),
         backgroundColor: Colors.red.shade900,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.only(top: 12, left: 16, right: 16),
-        duration: const Duration(seconds: 2),
+        dividerColor: Colors.red.shade900,
+        elevation: 0,
+        leading: const Icon(Icons.info_outline, color: Colors.white),
+        actions: [
+          IconButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            tooltip: '닫기',
+            icon: const Icon(Icons.close, color: Colors.white),
+          ),
+        ],
       ),
     );
+    _messageTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
   }
 
   void _changeMonth(int delta) {
@@ -719,10 +731,7 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {});
   }
 
-  void _saveRoutine() {
-    final title = _routineTitleController.text.trim();
-    if (title.isEmpty) return;
-
+  List<RoutineExercise>? _routineExercisesFromEditor() {
     final exercises = <RoutineExercise>[];
     for (final session in _splitTargetSessions[_selectedSplitTargetIndex]) {
       if (session.exercise == null || session.exercise!.isEmpty) {
@@ -752,21 +761,30 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       }
     }
+    return exercises.isEmpty ? null : exercises;
+  }
 
-    if (exercises.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('저장할 운동이 없습니다.')));
+  Future<void> _saveRoutine() async {
+    final title = _routineTitleController.text.trim();
+    if (title.isEmpty) return;
+
+    final isEditing = _selectedRoutineId != null;
+    final exercises = _routineExercisesFromEditor();
+
+    if (exercises == null) {
+      _showTopMessage('저장할 운동이 없습니다.');
       return;
     }
 
     final routine = WorkoutRoutine(
-      id: _uuid.v4(),
+      id: _selectedRoutineId ?? _uuid.v4(),
       name: title,
       exercises: exercises,
     );
-    _workoutProvider.saveRoutine(routine);
-    _workoutProvider.assignRoutineToWeekday(_selectedWeekday, routine.id);
+    await _workoutProvider.saveRoutine(routine);
+    if (!isEditing) {
+      await _workoutProvider.assignRoutineToWeekday(_selectedWeekday, routine.id);
+    }
     _selectedRoutineId = routine.id;
 
     if (_selectedDraftRoutineIndex != null &&
@@ -775,8 +793,25 @@ class _MyHomePageState extends State<MyHomePage> {
       _selectedDraftRoutineIndex = null;
     }
 
-    _resetRoutineEditor();
-    _showTopMessage('$title 루틴이 저장되었습니다.');
+    _showTopMessage('$title 루틴이 ${isEditing ? '수정' : '저장'}되었습니다.');
+    setState(() {});
+  }
+
+  Future<void> _duplicateSelectedRoutine() async {
+    final routine = _workoutProvider.getRoutineById(_selectedRoutineId ?? '');
+    final exercises = _routineExercisesFromEditor();
+    if (routine == null || exercises == null) return;
+
+    final copy = WorkoutRoutine(
+      id: _uuid.v4(),
+      name: '${routine.name} (copy)',
+      exercises: exercises,
+    );
+    await _workoutProvider.saveRoutine(copy);
+    await _workoutProvider.assignRoutineToWeekday(_selectedWeekday, copy.id);
+    _selectedRoutineId = copy.id;
+    _routineTitleController.text = copy.name;
+    _showTopMessage('${copy.name} 루틴이 복제되었습니다.');
     setState(() {});
   }
 
@@ -847,9 +882,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void _startTodayWorkout() {
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
     if (routine == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('오늘의 루틴이 없습니다.')));
+      _showTopMessage('오늘의 루틴이 없습니다.');
       return;
     }
 
@@ -1213,6 +1246,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     _restTimer?.cancel();
+    _messageTimer?.cancel();
     for (final entry in _setTouchTimers.values) {
       for (final timer in entry.values) {
         timer?.cancel();
@@ -1378,15 +1412,41 @@ class _MyHomePageState extends State<MyHomePage> {
             onAddWeeklyWorkout: _addWeeklyWorkout,
           ),
           const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _saveRoutine,
-            icon: const Icon(Icons.save),
-            label: const Text('루틴 저장'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.red.shade900,
+          if (_selectedRoutineId == null)
+            ElevatedButton.icon(
+              onPressed: _saveRoutine,
+              icon: const Icon(Icons.save),
+              label: const Text('저장'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.red.shade900,
+              ),
+            )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _saveRoutine,
+                  icon: const Icon(Icons.edit),
+                  label: const Text('수정'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.red.shade900,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton.icon(
+                  onPressed: _duplicateSelectedRoutine,
+                  icon: const Icon(Icons.copy),
+                  label: const Text('복제'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.red.shade900,
+                  ),
+                ),
+              ],
             ),
-          ),
         ],
       ),
       CalendarPage(
