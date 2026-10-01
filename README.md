@@ -56,6 +56,16 @@
 - 드래그 중 재생 버튼이 카드에 가려지지 않도록 표시 순서 개선
 - 재생/일시정지 버튼 크기 확대 및 하단 메뉴바 홈 여백 제거
 
+## 0.4.0 업데이트
+
+- 운동 목록을 정적 코드에서 JSON 데이터셋 기반으로 전환
+- 1,324개 운동의 이름, 부위, 기구, 주요 근육 및 한국어 설명 제공
+- 근력 운동과 유산소 운동 목록 분리, 운동 부위·기구 필터 및 검색 추가
+- JSON의 이미지 경로를 연결해 운동 선택 목록에 썸네일 표시
+- 운동 상세 정보와 데이터 출처 및 이미지 저작권 표시
+- 운동 JSON 및 이미지를 `hmtrainer/data/`로 정리하고 Flutter assets로 등록
+- iOS 시뮬레이터 빌드 대상 설정을 수정해 `flutter run` 실행 문제 해결
+
 ## 실행 방법
 
 ```bash
@@ -104,11 +114,16 @@ zip -qr ~/Desktop/HMT.ipa Payload
 ## 현재 구조
 
 - 루틴 관리: 운동 이름, 세트, 반복, 무게, 유산소 시간 설정
+- 운동 선택: `hmtrainer/data/exercises.json` 및 `hmtrainer/data/images/` 활용
 - 운동 진행: 세트별 완료 체크와 휴식 타이머 활용
 - 기록: 완료한 운동을 저장하고 그래프로 확인
 - 일정 관리: 캘린더/요일에 루틴 연결
 
+운동 데이터와 이미지는 [hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset)에서 가져옵니다.
+운동명은 원본 영어 표기를 사용하고, 부위·기구 필터와 한국어 설명 및 운동 이미지를 제공합니다.
+데이터 라이선스와 이미지 사용 조건은 [hmtrainer/EXERCISES_DATASET_LICENSE.txt](hmtrainer/EXERCISES_DATASET_LICENSE.txt)를 참고하세요.
+
 ## 버전 정보
 
-- 현재 버전: 0.3.1
-- 상태: 기본 기능과 오류 수정이 반영된 MVP 단계
+- 현재 버전: 0.4.0
+- 상태: 운동 데이터셋 기반 운동 선택이 반영된 MVP 단계

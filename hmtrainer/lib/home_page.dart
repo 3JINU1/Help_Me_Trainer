@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
+import 'exercise_catalog.dart';
 import 'models.dart';
 import 'pages/calendar_page.dart';
 import 'pages/exercise_page.dart';
@@ -35,105 +36,14 @@ class _MyHomePageState extends State<MyHomePage> {
   final GlobalKey _sessionSectionKey = GlobalKey();
   bool _isReorderingSession = false;
   double? _sessionDragPointerY;
+  ExerciseCatalog? _exerciseCatalog;
+  String? _exerciseCatalogError;
   final Map<String, List<int?>> _exerciseSetProgress = {};
   final Map<String, Map<int, Timer?>> _setTouchTimers = {};
   final Map<String, Set<int>> _finalizedSetIndexes = {};
   final Map<String, Timer?> _cardioTimers = {};
   final Map<String, int> _cardioRemainingSeconds = {};
   final Map<String, bool> _cardioRunning = {};
-  final List<String> _exerciseNames = const [
-    '바벨 스쿼트',
-    '프론트 스쿼트',
-    '고블릿 스쿼트',
-    '덤벨 스쿼트',
-    '리버스 런지',
-    '워킹 런지',
-    '스플릿 스쿼트',
-    '레그 프레스',
-    '레그 익스텐션',
-    '레그 컬',
-    '데드리프트',
-    '굿모닝',
-    '루마니안 데드리프트',
-    '스티프 레그 데드리프트',
-    '글루트 브릿지',
-    '힙 쓰러스트',
-    '벤치 프레스',
-    '플랫 벤치프레스',
-    '인클라인 벤치프레스',
-    '디클라인 벤치프레스',
-    '덤벨 벤치프레스',
-    '인클라인 덤벨 프레스',
-    '디클라인 덤벨 프레스',
-    '체스트 프레스 머신',
-    '푸시업',
-    '딥스',
-    '케이블 플라이',
-    '덤벨 플라이',
-    '풀업',
-    '친업',
-    '렛 풀다운',
-    '시티드 케이블 로우',
-    '바벨 로우',
-    '덤벨 로우',
-    '티바 로우',
-    '케이블 로우',
-    '오버헤드 프레스',
-    '스미스 머신 숄더 프레스',
-    '덤벨 숄더 프레스',
-    '사이드 레터럴 레이즈',
-    '프론트 레터럴 레이즈',
-    '리어 델트 플라이',
-    '페이스 풀',
-    '케이블 푸쉬다운',
-    '라잉 트라이셉스 익스텐션',
-    '해머 컬',
-    '바벨 컬',
-    '이너 컬',
-    '크런치',
-    '러시안 트위스트',
-    '레그 레이즈',
-    '플랭크',
-    '사이드 플랭크',
-    '버터플라이',
-    '마운틴 클라이머',
-    '스쿼트 점프',
-    '버피',
-    '케틀벨 스윙',
-    '덤벨 스윙',
-    '덤벨 쓰러스트',
-    '캐럴 워크',
-    '백 익스텐션',
-    '힙 어브덕션',
-    '힙 어드덕션',
-    '윗몸 일으키기',
-    '머신 숄더 프레스',
-    '재활 스쿼트',
-    '체스트 스프레더',
-    '아놀드 프레스',
-    '스티프 바벨 데드리프트',
-    '토마호크',
-    '바벨 벤치 프레스',
-    '징크스',
-  ];
-  final List<String> _cardioExerciseNames = const [
-    '런닝머신',
-    '실내 자전거',
-    '싸이클',
-    '스피닝',
-    '엘립티컬',
-    '스텝퍼',
-    '로잉 머신',
-    '점프 로프',
-    '걷기',
-    '달리기',
-    '계단 오르기',
-    '버피',
-    '마운틴 클라이머',
-    '스쿼트 점프',
-    '케틀벨 스윙',
-    '캐럴 워크',
-  ];
   final TextEditingController _routineTitleController = TextEditingController();
   final TextEditingController _weeklyWorkoutController =
       TextEditingController();
@@ -168,7 +78,39 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    _loadExerciseCatalog();
     _loadWorkoutData();
+  }
+
+  List<ExerciseEntry> get _exerciseNames =>
+      _exerciseCatalog?.strengthExercises ?? const [];
+  List<ExerciseEntry> get _cardioExerciseNames =>
+      _exerciseCatalog?.cardioExercises ?? const [];
+
+  Future<void> _loadExerciseCatalog() async {
+    try {
+      final source = await _loadExerciseJson();
+      final catalog = ExerciseCatalog.fromJson(source);
+      if (mounted) {
+        setState(() => _exerciseCatalog = catalog);
+      }
+    } on FormatException {
+      if (!mounted) return;
+      setState(() => _exerciseCatalogError = '운동 데이터 파일 형식이 올바르지 않습니다.');
+      _showTopMessage('운동 데이터 파일을 읽지 못했습니다.');
+    } on FlutterError {
+      if (!mounted) return;
+      setState(() => _exerciseCatalogError = '운동 데이터 파일을 찾을 수 없습니다.');
+      _showTopMessage('운동 데이터 파일을 찾을 수 없습니다.');
+    }
+  }
+
+  Future<String> _loadExerciseJson() async {
+    try {
+      return await rootBundle.loadString('data/exercises.json');
+    } on FlutterError {
+      return rootBundle.loadString('exercises.json');
+    }
   }
 
   Future<void> _loadWorkoutData() async {
@@ -1495,6 +1437,9 @@ class _MyHomePageState extends State<MyHomePage> {
           splitTargetSessions: _splitTargetSessions,
           exerciseNames: _exerciseNames,
           cardioExerciseNames: _cardioExerciseNames,
+          exerciseDataLoading:
+              _exerciseCatalog == null && _exerciseCatalogError == null,
+          exerciseDataError: _exerciseCatalogError,
           onAddSplitTarget: _addSplitTarget,
           onSetSelectedSplitTarget: _setSelectedSplitTarget,
           onSetSplitTarget: _setSplitTarget,

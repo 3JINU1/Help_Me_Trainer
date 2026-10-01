@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../exercise_catalog.dart';
 import '../models.dart';
 
 class ExercisePage extends StatefulWidget {
@@ -11,6 +12,8 @@ class ExercisePage extends StatefulWidget {
     required this.splitTargetSessions,
     required this.exerciseNames,
     required this.cardioExerciseNames,
+    required this.exerciseDataLoading,
+    required this.exerciseDataError,
     required this.onAddSplitTarget,
     required this.onSetSelectedSplitTarget,
     required this.onSetSplitTarget,
@@ -46,8 +49,10 @@ class ExercisePage extends StatefulWidget {
   final List<String> splitTargets;
   final int selectedSplitTargetIndex;
   final List<List<SplitSession>> splitTargetSessions;
-  final List<String> exerciseNames;
-  final List<String> cardioExerciseNames;
+  final List<ExerciseEntry> exerciseNames;
+  final List<ExerciseEntry> cardioExerciseNames;
+  final bool exerciseDataLoading;
+  final String? exerciseDataError;
   final VoidCallback onAddSplitTarget;
   final void Function(int index) onSetSelectedSplitTarget;
   final void Function(int index, String target) onSetSplitTarget;
@@ -93,46 +98,6 @@ class ExercisePage extends StatefulWidget {
 
 class _ExercisePageState extends State<ExercisePage> {
   final Map<String, TextEditingController> _cardioTimeControllers = {};
-
-  static const _filterGroups = <String, List<String>>{
-    'Equipment': [
-      'Dumbbell',
-      'Barbell',
-      'Cable',
-      'Machine',
-      'Smith Machine',
-      'Kettlebell',
-      'Band / Resistance Band',
-      'Bodyweight',
-    ],
-    'Posture & Position': [
-      'Seated',
-      'Standing',
-      'Bent-over',
-      'Incline',
-      'Decline',
-      'Lying / Prone',
-      'Supine',
-      'Spider',
-      'Single-Arm / One-Arm',
-      'Half-Kneeling',
-    ],
-    'Grip': [
-      'Pronated (Overhand)',
-      'Supinated (Underhand)',
-      'Neutral',
-      'Wide / Narrow (Close)',
-      'Reverse',
-    ],
-    'Movement Pattern & Execution': [
-      'Press / Push',
-      'Pull / Row',
-      'Raise / Fly',
-      'Curl / Extension',
-      'Pause / Dead-stop',
-      'Deficit',
-    ],
-  };
 
   DragBoundaryDelegate<Rect> _sessionDragBoundary(BuildContext context) {
     if (_currentSessionDragBounds() == null) {
@@ -229,6 +194,28 @@ class _ExercisePageState extends State<ExercisePage> {
     return false;
   }
 
+  bool _matchesExerciseFilters(
+    ExerciseEntry exercise,
+    Set<String> selectedBodyParts,
+    Set<String> selectedEquipment,
+    String query,
+  ) {
+    final matchesBodyPart =
+        selectedBodyParts.isEmpty ||
+        selectedBodyParts.contains(exercise.bodyPart);
+    final matchesEquipment =
+        selectedEquipment.isEmpty ||
+        selectedEquipment.contains(exercise.equipment);
+    final matchesQuery =
+        _matchesExerciseSearch(exercise.name, query) ||
+        _matchesExerciseSearch(exercise.category, query) ||
+        _matchesExerciseSearch(exercise.bodyPart, query) ||
+        _matchesExerciseSearch(exercise.equipment, query) ||
+        _matchesExerciseSearch(exercise.target, query);
+
+    return matchesBodyPart && matchesEquipment && matchesQuery;
+  }
+
   bool _editDistanceAtMostOne(String first, String second) {
     if ((first.length - second.length).abs() > 1) return false;
     var differences = 0;
@@ -279,9 +266,15 @@ class _ExercisePageState extends State<ExercisePage> {
   }) {
     final searchController = TextEditingController();
     final activeFilters = <String>{};
-    final exerciseSource = session.type == '유산소'
+    final List<ExerciseEntry> exerciseSource = session.type == '유산소'
         ? widget.cardioExerciseNames
         : widget.exerciseNames;
+    final bodyParts =
+        exerciseSource.map((exercise) => exercise.bodyPart).toSet().toList()
+          ..sort();
+    final equipmentTypes =
+        exerciseSource.map((exercise) => exercise.equipment).toSet().toList()
+          ..sort();
 
     showDialog<void>(
       context: context,
@@ -314,41 +307,26 @@ class _ExercisePageState extends State<ExercisePage> {
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 116),
                       child: SingleChildScrollView(
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 4,
-                          children: _filterGroups.values
-                              .expand((filters) => filters)
-                              .map((filter) {
-                                final selected = activeFilters.contains(filter);
-                                return FilterChip(
-                                  label: Text(
-                                    filter,
-                                    style: TextStyle(
-                                      color: selected
-                                          ? Colors.white
-                                          : Colors.red.shade900,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  selected: selected,
-                                  onSelected: (value) {
-                                    setDialogState(() {
-                                      if (value) {
-                                        activeFilters.add(filter);
-                                      } else {
-                                        activeFilters.remove(filter);
-                                      }
-                                    });
-                                  },
-                                  backgroundColor: Colors.red.shade50,
-                                  selectedColor: Colors.red,
-                                  checkmarkColor: Colors.white,
-                                  side: BorderSide(color: Colors.red.shade200),
-                                  visualDensity: VisualDensity.compact,
-                                );
-                              })
-                              .toList(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (bodyParts.isNotEmpty)
+                              _buildExerciseFilterGroup(
+                                title: '운동 부위',
+                                values: bodyParts,
+                                filterPrefix: 'body:',
+                                activeFilters: activeFilters,
+                                setDialogState: setDialogState,
+                              ),
+                            if (equipmentTypes.isNotEmpty)
+                              _buildExerciseFilterGroup(
+                                title: '기구',
+                                values: equipmentTypes,
+                                filterPrefix: 'equipment:',
+                                activeFilters: activeFilters,
+                                setDialogState: setDialogState,
+                              ),
+                          ],
                         ),
                       ),
                     ),
@@ -379,30 +357,105 @@ class _ExercisePageState extends State<ExercisePage> {
                       child: ValueListenableBuilder<TextEditingValue>(
                         valueListenable: searchController,
                         builder: (context, value, child) {
-                          final filtered = exerciseSource.where((exercise) {
-                            final matchesQuery = _matchesExerciseSearch(
-                              exercise,
-                              value.text.trim(),
+                          if (widget.exerciseDataLoading) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
                             );
-                            return matchesQuery;
-                          }).toList();
+                          }
+                          if (widget.exerciseDataError != null) {
+                            return Center(
+                              child: Text(
+                                widget.exerciseDataError!,
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                            );
+                          }
+                          final selectedBodyParts = activeFilters
+                              .where((filter) => filter.startsWith('body:'))
+                              .map((filter) => filter.substring('body:'.length))
+                              .toSet();
+                          final selectedEquipment = activeFilters
+                              .where(
+                                (filter) => filter.startsWith('equipment:'),
+                              )
+                              .map(
+                                (filter) =>
+                                    filter.substring('equipment:'.length),
+                              )
+                              .toSet();
+                          final filtered = exerciseSource
+                              .where(
+                                (exercise) => _matchesExerciseFilters(
+                                  exercise,
+                                  selectedBodyParts,
+                                  selectedEquipment,
+                                  value.text.trim(),
+                                ),
+                              )
+                              .toList();
+                          if (filtered.isEmpty) {
+                            return const Center(
+                              child: Text(
+                                '검색 결과가 없습니다.',
+                                style: TextStyle(color: Colors.black54),
+                              ),
+                            );
+                          }
 
                           return ListView.builder(
                             itemCount: filtered.length,
                             itemBuilder: (context, index) {
                               final exercise = filtered[index];
                               return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                leading: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.asset(
+                                    exercise.imageAssetPath,
+                                    width: 56,
+                                    height: 56,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) =>
+                                        Container(
+                                          width: 56,
+                                          height: 56,
+                                          color: Colors.red.shade50,
+                                          alignment: Alignment.center,
+                                          child: Icon(
+                                            Icons.fitness_center,
+                                            color: Colors.red.shade300,
+                                          ),
+                                        ),
+                                  ),
+                                ),
                                 title: Text(
-                                  exercise,
+                                  exercise.name,
                                   style: const TextStyle(color: Colors.black87),
                                 ),
-                                selected: session.exercise == exercise,
+                                subtitle: Text(
+                                  '${exercise.category} · ${exercise.equipment}',
+                                  style: const TextStyle(color: Colors.black54),
+                                ),
+                                trailing: IconButton(
+                                  tooltip: '운동 정보',
+                                  icon: const Icon(
+                                    Icons.info_outline,
+                                    color: Colors.black54,
+                                  ),
+                                  onPressed: () => _showExerciseDetails(
+                                    dialogContext,
+                                    exercise,
+                                  ),
+                                ),
+                                selected: session.exercise == exercise.name,
                                 selectedTileColor: Colors.red.shade50,
                                 onTap: () {
                                   widget.onSetSplitSessionExercise(
                                     widget.selectedSplitTargetIndex,
                                     sessionIndex,
-                                    exercise,
+                                    exercise.name,
                                   );
                                   Navigator.pop(dialogContext);
                                 },
@@ -410,6 +463,14 @@ class _ExercisePageState extends State<ExercisePage> {
                             },
                           );
                         },
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '© Gym visual — https://gymvisual.com/',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontSize: 10,
                       ),
                     ),
                   ],
@@ -428,6 +489,90 @@ class _ExercisePageState extends State<ExercisePage> {
           },
         );
       },
+    );
+  }
+
+  void _showExerciseDetails(BuildContext context, ExerciseEntry exercise) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        title: Text(exercise.name, style: const TextStyle(color: Colors.black)),
+        content: SingleChildScrollView(
+          child: Text(
+            '부위: ${exercise.bodyPart}\n'
+            '기구: ${exercise.equipment}\n'
+            '주요 근육: ${exercise.target}\n\n'
+            '${exercise.koreanInstructions}\n\n'
+            '${exercise.attribution}',
+            style: const TextStyle(color: Colors.black87),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExerciseFilterGroup({
+    required String title,
+    required List<String> values,
+    required String filterPrefix,
+    required Set<String> activeFilters,
+    required StateSetter setDialogState,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 3),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: Colors.red.shade900,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: values.map((value) {
+            final filter = '$filterPrefix$value';
+            final selected = activeFilters.contains(filter);
+            return FilterChip(
+              label: Text(
+                value,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.red.shade900,
+                  fontSize: 11,
+                ),
+              ),
+              selected: selected,
+              onSelected: (isSelected) {
+                setDialogState(() {
+                  if (isSelected) {
+                    activeFilters.add(filter);
+                  } else {
+                    activeFilters.remove(filter);
+                  }
+                });
+              },
+              backgroundColor: Colors.red.shade50,
+              selectedColor: Colors.red,
+              checkmarkColor: Colors.white,
+              side: BorderSide(color: Colors.red.shade200),
+              visualDensity: VisualDensity.compact,
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
