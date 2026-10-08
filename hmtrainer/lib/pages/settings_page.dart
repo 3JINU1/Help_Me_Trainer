@@ -74,8 +74,8 @@ class SettingsPage extends StatelessWidget {
     final previousSeconds = restTimerSettings.alertSeconds.isEmpty
         ? restTimerSettings.initialSeconds
         : restTimerSettings.alertSeconds.last;
-    final intervalSeconds = restTimerSettings.alertSeconds.isEmpty ? 90 : 120;
-    final nextSeconds = previousSeconds + intervalSeconds;
+    final nextSeconds =
+        previousSeconds + RestTimerSettings.minimumAlertGapSeconds;
     if (nextSeconds > RestTimerSettings.maximumAlertSeconds) return;
     onChangeRestTimerSettings(
       restTimerSettings.copyWith(
@@ -97,9 +97,7 @@ class SettingsPage extends StatelessWidget {
     final lastAlertSeconds = restTimerSettings.alertSeconds.isEmpty
         ? restTimerSettings.initialSeconds
         : restTimerSettings.alertSeconds.last;
-    final nextAlertIntervalSeconds = restTimerSettings.alertSeconds.isEmpty
-        ? 90
-        : 120;
+    const nextAlertIntervalSeconds = RestTimerSettings.minimumAlertGapSeconds;
     final canAddAlert =
         lastAlertSeconds + nextAlertIntervalSeconds <=
         RestTimerSettings.maximumAlertSeconds;
@@ -164,7 +162,7 @@ class SettingsPage extends StatelessWidget {
                 ),
               ),
               if (restTimerSettings.alertSeconds.isNotEmpty)
-                const Divider(height: 1, indent: 16, endIndent: 16),
+                const SizedBox(height: 8),
               ...restTimerSettings.alertSeconds.indexed.map((entry) {
                 final index = entry.$1;
                 final seconds = entry.$2;
@@ -176,53 +174,69 @@ class SettingsPage extends StatelessWidget {
                     ? restTimerSettings.alertSeconds[index + 1] -
                           RestTimerSettings.minimumAlertGapSeconds
                     : RestTimerSettings.maximumAlertSeconds;
+                final alertColor = Color.lerp(
+                  Colors.red.shade50,
+                  Colors.red.shade400,
+                  ((index + 1) / 5).clamp(0.0, 1.0).toDouble(),
+                )!;
                 return Column(
                   children: [
-                    ListTile(
-                      title: Text(
-                        '추가 알림 ${index + 1}',
-                        style: const TextStyle(color: Colors.black87),
+                    Container(
+                      key: Key('rest_alert_card_$index'),
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
                       ),
-                      subtitle: Text(
-                        _formatRestTime(seconds),
-                        style: const TextStyle(color: Colors.black54),
+                      decoration: BoxDecoration(
+                        color: alertColor,
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            key: Key('decrease_rest_alert_$index'),
-                            tooltip: '알림 시간 줄이기',
-                            icon: const Icon(Icons.remove, color: Colors.red),
-                            onPressed:
-                                seconds >
-                                    previousSeconds +
-                                        RestTimerSettings.minimumAlertGapSeconds
-                                ? () => _changeAlertSeconds(index, -30)
-                                : null,
+                      child: ListTile(
+                        title: Text(
+                          '추가 알림 ${index + 1}',
+                          style: const TextStyle(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
                           ),
-                          IconButton(
-                            key: Key('increase_rest_alert_$index'),
-                            tooltip: '알림 시간 늘리기',
-                            icon: const Icon(Icons.add, color: Colors.red),
-                            onPressed: seconds < maximumSeconds
-                                ? () => _changeAlertSeconds(index, 30)
-                                : null,
-                          ),
-                          IconButton(
-                            key: Key('remove_rest_alert_$index'),
-                            tooltip: '알림 삭제',
-                            icon: const Icon(
-                              Icons.close,
-                              color: Colors.black54,
+                        ),
+                        subtitle: Text(
+                          _formatRestTime(seconds),
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              key: Key('decrease_rest_alert_$index'),
+                              tooltip: '알림 시간 줄이기',
+                              icon: const Icon(Icons.remove, color: Colors.red),
+                              onPressed: seconds >
+                                      previousSeconds +
+                                          RestTimerSettings.minimumAlertGapSeconds
+                                  ? () => _changeAlertSeconds(index, -10)
+                                  : null,
                             ),
-                            onPressed: () => _removeAlert(index),
-                          ),
-                        ],
+                            IconButton(
+                              key: Key('increase_rest_alert_$index'),
+                              tooltip: '알림 시간 늘리기',
+                              icon: const Icon(Icons.add, color: Colors.red),
+                              onPressed: seconds < maximumSeconds
+                                  ? () => _changeAlertSeconds(index, 10)
+                                  : null,
+                            ),
+                            IconButton(
+                              key: Key('remove_rest_alert_$index'),
+                              tooltip: '알림 삭제',
+                              icon: const Icon(
+                                Icons.close,
+                                color: Colors.black54,
+                              ),
+                              onPressed: () => _removeAlert(index),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    if (index + 1 < restTimerSettings.alertSeconds.length)
-                      const Divider(height: 1, indent: 16, endIndent: 16),
                   ],
                 );
               }),

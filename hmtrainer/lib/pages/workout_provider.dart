@@ -50,7 +50,7 @@ class RestTimerSettings {
   static const defaultInitialSeconds = 60;
   static const minimumInitialSeconds = 10;
   static const maximumInitialSeconds = 180;
-  static const minimumAlertGapSeconds = 30;
+  static const minimumAlertGapSeconds = 60;
   static const maximumAlertSeconds = 3600;
 
   RestTimerSettings copyWith({int? initialSeconds, List<int>? alertSeconds}) {

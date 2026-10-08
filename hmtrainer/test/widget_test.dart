@@ -147,10 +147,8 @@ void main() {
     expect(selectedDuration, 3723);
   });
 
-  testWidgets('휴식 알림을 추가하고 이전 시점보다 길게 설정한다', (
-    WidgetTester tester,
-  ) async {
-    var settings = const RestTimerSettings(initialSeconds: 90);
+  testWidgets('휴식 알림을 추가하고 이전 시점보다 길게 설정한다', (WidgetTester tester) async {
+    var settings = const RestTimerSettings();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -166,18 +164,37 @@ void main() {
       ),
     );
 
-    expect(find.text('1분 30초'), findsOneWidget);
+    expect(find.byType(Divider), findsNothing);
+    expect(find.text('1분'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('add_rest_alert')));
+    await tester.pumpAndSettle();
+    expect(find.text('2분'), findsOneWidget);
+
     await tester.tap(find.byKey(const Key('add_rest_alert')));
     await tester.pumpAndSettle();
     expect(find.text('3분'), findsOneWidget);
+    expect(settings.alertSeconds, [120, 180]);
 
-    await tester.tap(find.byKey(const Key('add_rest_alert')));
+    await tester.tap(find.byKey(const Key('increase_rest_alert_1')));
     await tester.pumpAndSettle();
-    expect(find.text('5분'), findsOneWidget);
-    expect(settings.alertSeconds, [180, 300]);
+    expect(settings.alertSeconds, [120, 190]);
+    await tester.tap(find.byKey(const Key('decrease_rest_alert_1')));
+    await tester.pumpAndSettle();
+    expect(settings.alertSeconds, [120, 180]);
 
-    await tester.tap(find.byKey(const Key('decrease_rest_alert_0')));
-    await tester.pumpAndSettle();
-    expect(settings.alertSeconds, [150, 300]);
+    final firstAlertColor =
+        tester
+                .widget<Container>(find.byKey(const Key('rest_alert_card_0')))
+                .decoration!
+            as BoxDecoration;
+    final secondAlertColor =
+        tester
+                .widget<Container>(find.byKey(const Key('rest_alert_card_1')))
+                .decoration!
+            as BoxDecoration;
+    expect(
+      firstAlertColor.color!.computeLuminance(),
+      greaterThan(secondAlertColor.color!.computeLuminance()),
+    );
   });
 }

@@ -31,7 +31,9 @@ class _MyHomePageState extends State<MyHomePage> {
   Timer? _restTimer;
   Timer? _restAlarmTimer;
   int _restAlarmTicksRemaining = 0;
+  OverlayEntry? _restTimerOverlayEntry;
   Timer? _messageTimer;
+  OverlayEntry? _messageOverlayEntry;
   Timer? _sessionAutoScrollTimer;
   final ScrollController _routineEditorScrollController = ScrollController();
   final GlobalKey _routineEditorViewportKey = GlobalKey();
@@ -91,6 +93,42 @@ class _MyHomePageState extends State<MyHomePage> {
       _exerciseCatalog?.strengthExercises ?? const [];
   List<ExerciseEntry> get _cardioExerciseNames =>
       _exerciseCatalog?.cardioExercises ?? const [];
+
+  ExerciseEntry? _catalogExerciseForName(String name) {
+    for (final exercise
+        in _exerciseCatalog?.entries ?? const <ExerciseEntry>[]) {
+      if (exercise.name.toLowerCase() == name.toLowerCase()) {
+        return exercise;
+      }
+    }
+    return null;
+  }
+
+  Widget _todayExerciseImage(String name) {
+    final exercise = _catalogExerciseForName(name);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 68,
+        height: 68,
+        child: exercise == null
+            ? _todayExerciseImageFallback()
+            : Image.asset(
+                exercise.imageAssetPath,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _todayExerciseImageFallback(),
+              ),
+      ),
+    );
+  }
+
+  Widget _todayExerciseImageFallback() {
+    return Container(
+      color: Colors.red.shade50,
+      alignment: Alignment.center,
+      child: Icon(Icons.fitness_center, color: Colors.red.shade300, size: 28),
+    );
+  }
 
   Future<void> _loadExerciseCatalog() async {
     try {
@@ -175,6 +213,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _initializeWorkoutProgress();
       }
     });
+    _syncRestTimerOverlay();
   }
 
   void _toggleWorkoutPlaying() {
@@ -197,6 +236,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _isWorkoutMode = false;
         _cardioRunning.updateAll((_, __) => false);
       });
+      _syncRestTimerOverlay();
       return;
     }
 
@@ -204,6 +244,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _isWorkoutMode = true;
       _isPlaying = true;
     });
+    _syncRestTimerOverlay();
 
     if (_isResting) {
       _startRestTimer(reset: false);
@@ -227,6 +268,12 @@ class _MyHomePageState extends State<MyHomePage> {
     _cardioTimers.clear();
     _cardioRemainingSeconds.clear();
     _cardioRunning.clear();
+    _isResting = false;
+    _restElapsedSeconds = 0;
+    _restAlertStage = 0;
+    _restTimer?.cancel();
+    _stopRestAlarm();
+    _removeRestTimerOverlay();
     if (routine == null) return;
 
     for (final exercise in routine.exercises) {
@@ -246,11 +293,6 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     }
 
-    _isResting = false;
-    _restElapsedSeconds = 0;
-    _restAlertStage = 0;
-    _restTimer?.cancel();
-    _stopRestAlarm();
   }
 
   String _formatDuration(int totalSeconds) {
@@ -458,7 +500,10 @@ class _MyHomePageState extends State<MyHomePage> {
           _playRestAlarm();
         }
       });
+      _restTimerOverlayEntry?.markNeedsBuild();
+      _messageOverlayEntry?.markNeedsBuild();
     });
+    _syncRestTimerOverlay();
   }
 
   void _stopRestTimer({bool reset = true}) {
@@ -469,7 +514,119 @@ class _MyHomePageState extends State<MyHomePage> {
       _isResting = false;
       _restElapsedSeconds = 0;
       _restAlertStage = 0;
+      _removeRestTimerOverlay();
+      _messageOverlayEntry?.markNeedsBuild();
     }
+  }
+
+  void _syncRestTimerOverlay() {
+    if (!mounted || !_isWorkoutMode || !_isResting) {
+      _removeRestTimerOverlay();
+      _messageOverlayEntry?.markNeedsBuild();
+      return;
+    }
+    if (_restTimerOverlayEntry == null) {
+      _restTimerOverlayEntry = OverlayEntry(
+        builder: _buildRestTimerNotification,
+      );
+      Overlay.of(context, rootOverlay: true).insert(_restTimerOverlayEntry!);
+    } else {
+      _restTimerOverlayEntry!.markNeedsBuild();
+    }
+    _messageOverlayEntry?.markNeedsBuild();
+  }
+
+  Widget _buildRestTimerNotification(BuildContext overlayContext) {
+    final topInset = MediaQuery.paddingOf(overlayContext).top;
+    final progress = _restAlertThresholdCount == 0
+        ? 0.0
+        : (_restAlertStage / _restAlertThresholdCount)
+              .clamp(0.0, 1.0)
+              .toDouble();
+    final backgroundColor = Color.lerp(
+      Colors.red.shade700,
+      Colors.red.shade900,
+      progress,
+    )!;
+    return Positioned(
+      top: topInset + 8,
+      left: 12,
+      right: 12,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.hourglass_top, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '휴식',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (_restAlertStage > 0)
+                      Text(
+                        '알림 $_restAlertStage / $_restAlertThresholdCount',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Text(
+                _formatDuration(_restElapsedSeconds),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: () => setState(_stopRestTimer),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 32,
+                ),
+                splashColor: Colors.transparent,
+                highlightColor: Colors.transparent,
+                hoverColor: Colors.transparent,
+                icon: const Icon(Icons.close, size: 20, color: Colors.white),
+                tooltip: '휴식 종료',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _removeRestTimerOverlay() {
+    _restTimerOverlayEntry?.remove();
+    _restTimerOverlayEntry?.dispose();
+    _restTimerOverlayEntry = null;
   }
 
   void _playRestAlarm() {
@@ -541,34 +698,74 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _showTopMessage(String message) {
-    final messenger = ScaffoldMessenger.of(context);
     _messageTimer?.cancel();
-    messenger.clearMaterialBanners();
-    messenger.showMaterialBanner(
-      MaterialBanner(
-        content: Text(
-          message,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
+    _removeTopMessage();
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _messageOverlayEntry = OverlayEntry(
+      builder: (overlayContext) {
+        final topInset =
+            MediaQuery.paddingOf(overlayContext).top +
+            (_isWorkoutMode && _isResting ? 84 : 0);
+        return Positioned(
+          top: topInset + 8,
+          left: 12,
+          right: 12,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade900,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: _hideTopMessage,
+                    tooltip: '닫기',
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-        backgroundColor: Colors.red.shade900,
-        dividerColor: Colors.red.shade900,
-        elevation: 0,
-        leading: const Icon(Icons.info_outline, color: Colors.white),
-        actions: [
-          IconButton(
-            onPressed: messenger.hideCurrentMaterialBanner,
-            tooltip: '닫기',
-            icon: const Icon(Icons.close, color: Colors.white),
-          ),
-        ],
-      ),
+        );
+      },
     );
+    overlay.insert(_messageOverlayEntry!);
     _messageTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) messenger.hideCurrentMaterialBanner();
+      if (mounted) _hideTopMessage();
     });
+  }
+
+  void _hideTopMessage() {
+    _messageTimer?.cancel();
+    _messageTimer = null;
+    _removeTopMessage();
+  }
+
+  void _removeTopMessage() {
+    _messageOverlayEntry?.remove();
+    _messageOverlayEntry?.dispose();
+    _messageOverlayEntry = null;
   }
 
   void _changeMonth(int delta) {
@@ -971,11 +1168,20 @@ class _MyHomePageState extends State<MyHomePage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('루틴 삭제'),
-          content: Text('${routine.name} 루틴을 정말 삭제하시겠습니까?'),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Text('루틴 삭제', style: TextStyle(color: Colors.black87)),
+          content: Text(
+            '${routine.name} 루틴을 정말 삭제하시겠습니까?',
+            style: const TextStyle(color: Colors.black87),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
+              style: TextButton.styleFrom(foregroundColor: Colors.black54),
               child: const Text('취소'),
             ),
             TextButton(
@@ -1416,6 +1622,8 @@ class _MyHomePageState extends State<MyHomePage> {
     _restTimer?.cancel();
     _stopRestAlarm();
     _messageTimer?.cancel();
+    _removeTopMessage();
+    _removeRestTimerOverlay();
     _sessionAutoScrollTimer?.cancel();
     _routineEditorScrollController.dispose();
     for (final entry in _setTouchTimers.values) {
@@ -1763,22 +1971,6 @@ class _MyHomePageState extends State<MyHomePage> {
 
     final todayWorkoutList = _todayWorkoutSummary();
     final todayRoutine = _workoutProvider.getRoutineForDate(DateTime.now());
-    final restAlertProgress = _restAlertThresholdCount == 0
-        ? 0.0
-        : (_restAlertStage / _restAlertThresholdCount)
-              .clamp(0.0, 1.0)
-              .toDouble();
-    final restAlertColor = Color.lerp(
-      Colors.red.shade50,
-      Colors.red.shade300,
-      restAlertProgress,
-    )!;
-    final restAlertBorderColor = Color.lerp(
-      Colors.red.shade200,
-      Colors.red.shade700,
-      restAlertProgress,
-    )!;
-
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: statusOverlayStyle,
       child: Scaffold(
@@ -1859,13 +2051,24 @@ class _MyHomePageState extends State<MyHomePage> {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              exercise.name,
-                                              style: const TextStyle(
-                                                color: Colors.black,
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.w700,
-                                              ),
+                                            Row(
+                                              children: [
+                                                _todayExerciseImage(
+                                                  exercise.name,
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Text(
+                                                    exercise.name,
+                                                    style: const TextStyle(
+                                                      color: Colors.black,
+                                                      fontSize: 18,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                             const SizedBox(height: 12),
                                             Text(
@@ -1964,6 +2167,10 @@ class _MyHomePageState extends State<MyHomePage> {
                                         children: [
                                           Row(
                                             children: [
+                                              _todayExerciseImage(
+                                                exercise.name,
+                                              ),
+                                              const SizedBox(width: 12),
                                               Expanded(
                                                 child: Text(
                                                   exercise.name,
@@ -2091,87 +2298,12 @@ class _MyHomePageState extends State<MyHomePage> {
                                     label: const Text('운동 종료'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.red.shade700,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
+                                      foregroundColor: Colors.white                                      padding: const EdgeInsets.symmetric(
                                         vertical: 14,
                                       ),
                                     ),
                                   ),
                                 ),
-                                if (_isResting) ...[
-                                  const SizedBox(height: 16),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
-                                      horizontal: 16,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: restAlertColor,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: restAlertBorderColor,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              const Text(
-                                                '휴식',
-                                                style: TextStyle(
-                                                  color: Colors.black87,
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                              if (_restAlertStage > 0)
-                                                Text(
-                                                  '알림 $_restAlertStage / $_restAlertThresholdCount',
-                                                  style: const TextStyle(
-                                                    color: Colors.black54,
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                        ),
-                                        Text(
-                                          _formatDuration(_restElapsedSeconds),
-                                          style: const TextStyle(
-                                            color: Colors.red,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        IconButton(
-                                          onPressed: () =>
-                                              setState(_stopRestTimer),
-                                          padding: EdgeInsets.zero,
-                                          constraints:
-                                              const BoxConstraints.tightFor(
-                                                width: 32,
-                                                height: 32,
-                                              ),
-                                          splashColor: Colors.transparent,
-                                          highlightColor: Colors.transparent,
-                                          hoverColor: Colors.transparent,
-                                          icon: const Icon(
-                                            Icons.close,
-                                            size: 20,
-                                            color: Colors.black54,
-                                          ),
-                                          tooltip: '휴식 종료',
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
                               ],
                             ),
                           ),
@@ -2193,17 +2325,19 @@ class _MyHomePageState extends State<MyHomePage> {
                           controller: _selectedIndex == 0
                               ? _routineEditorScrollController
                               : null,
-                          child: pages[_selectedIndex],
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              bottom: _selectedIndex == 0 ? 128 : 0,
+                            ),
+                            child: pages[_selectedIndex],
+                          ),
                         ),
                       ),
                     ),
                   ),
           ),
         ),
-        floatingActionButton: Padding(
-          padding: EdgeInsets.zero,
-          child: playFab,
-        ),
+        floatingActionButton: playFab,
         floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
         bottomNavigationBar: bottomBar,
       ),
