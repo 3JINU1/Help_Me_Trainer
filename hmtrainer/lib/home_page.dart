@@ -292,7 +292,6 @@ class _MyHomePageState extends State<MyHomePage> {
         _cardioRunning[exercise.name] = false;
       }
     }
-
   }
 
   String _formatDuration(int totalSeconds) {
@@ -1975,6 +1974,7 @@ class _MyHomePageState extends State<MyHomePage> {
       value: statusOverlayStyle,
       child: Scaffold(
         backgroundColor: _isWorkoutMode ? Colors.white : Colors.red.shade900,
+        extendBody: true,
         resizeToAvoidBottomInset: false,
         appBar: _isWorkoutMode
             ? null
@@ -1988,6 +1988,7 @@ class _MyHomePageState extends State<MyHomePage> {
           behavior: HitTestBehavior.translucent,
           onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
           child: SafeArea(
+            bottom: !_isWorkoutMode,
             child: _isWorkoutMode
                 ? Padding(
                     padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
@@ -2298,22 +2299,20 @@ class _MyHomePageState extends State<MyHomePage> {
                                     label: const Text('운동 종료'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.red.shade700,
-                                      foregroundColor: Colors.white                                      padding: const EdgeInsets.symmetric(
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
                                         vertical: 14,
                                       ),
                                     ),
                                   ),
                                 ),
+                                const SizedBox(height: 128),
                               ],
                             ),
                           ),
                   )
                 : Padding(
-                    padding: const EdgeInsets.only(
-                      left: 16,
-                      right: 16,
-                      top: 16,
-                    ),
+                    padding: const EdgeInsets.only(left: 16, right: 16),
                     child: DragBoundary(
                       child: Listener(
                         behavior: HitTestBehavior.translucent,
@@ -2326,9 +2325,7 @@ class _MyHomePageState extends State<MyHomePage> {
                               ? _routineEditorScrollController
                               : null,
                           child: Padding(
-                            padding: EdgeInsets.only(
-                              bottom: _selectedIndex == 0 ? 128 : 0,
-                            ),
+                            padding: EdgeInsets.only(top: 24, bottom: 128),
                             child: pages[_selectedIndex],
                           ),
                         ),
