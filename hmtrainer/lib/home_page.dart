@@ -26,8 +26,11 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isWorkoutMode = false;
   bool _isPlaying = false;
   bool _isResting = false;
-  int _restRemainingSeconds = 60;
+  int _restElapsedSeconds = 0;
+  int _restAlertStage = 0;
   Timer? _restTimer;
+  Timer? _restAlarmTimer;
+  int _restAlarmTicksRemaining = 0;
   Timer? _messageTimer;
   Timer? _sessionAutoScrollTimer;
   final ScrollController _routineEditorScrollController = ScrollController();
@@ -39,6 +42,8 @@ class _MyHomePageState extends State<MyHomePage> {
   ExerciseCatalog? _exerciseCatalog;
   String? _exerciseCatalogError;
   final Map<String, List<int?>> _exerciseSetProgress = {};
+  final Map<String, double> _workoutWeights = {};
+  DateTime? _workoutProgressDate;
   final Map<String, Map<int, Timer?>> _setTouchTimers = {};
   final Map<String, Set<int>> _finalizedSetIndexes = {};
   final Map<String, Timer?> _cardioTimers = {};
@@ -67,9 +72,9 @@ class _MyHomePageState extends State<MyHomePage> {
   int? _selectedDraftRoutineIndex;
   String _selectedRoutineMode = '분할';
   String _selectedWeekday = '월';
-  bool _autoSync = true;
   bool _weekendSkipped = false;
   int _restSeconds = 60;
+  List<int> _restAlertSeconds = [];
   String? _selectedRoutineId;
 
   DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month);
@@ -115,12 +120,18 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _loadWorkoutData() async {
     await _workoutProvider.ready;
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final settings = _workoutProvider.restTimerSettings;
+    setState(() {
+      _restSeconds = settings.initialSeconds;
+      _restAlertSeconds = List.of(settings.alertSeconds);
+      _restElapsedSeconds = 0;
+    });
   }
 
   void _onNavTap(int index) {
     if (_isWorkoutMode) {
-      _stopRestTimer();
+      _stopRestTimer(reset: false);
       _cardioTimers.forEach((_, timer) => timer?.cancel());
     }
 
@@ -139,9 +150,20 @@ class _MyHomePageState extends State<MyHomePage> {
         _exerciseSetProgress.isNotEmpty ||
         _finalizedSetIndexes.isNotEmpty ||
         _cardioRemainingSeconds.isNotEmpty;
+    final today = DateTime.now();
+    final progressIsForToday =
+        _workoutProgressDate?.year == today.year &&
+        _workoutProgressDate?.month == today.month &&
+        _workoutProgressDate?.day == today.day;
+    final workoutIsCompletedToday = _workoutProvider.isWorkoutCompletedOn(
+      today,
+    );
 
     setState(() {
-      if (!_isWorkoutMode && hasExistingProgress) {
+      if (!_isWorkoutMode &&
+          hasExistingProgress &&
+          progressIsForToday &&
+          !workoutIsCompletedToday) {
         _isWorkoutMode = true;
         _isPlaying = true;
         return;
@@ -161,11 +183,14 @@ class _MyHomePageState extends State<MyHomePage> {
         _isWorkoutMode = true;
         _isPlaying = true;
       });
+      if (_isResting) {
+        _startRestTimer(reset: false);
+      }
       return;
     }
 
     if (_isPlaying) {
-      _stopRestTimer();
+      _stopRestTimer(reset: false);
       _cardioTimers.forEach((_, timer) => timer?.cancel());
       setState(() {
         _isPlaying = false;
@@ -180,8 +205,8 @@ class _MyHomePageState extends State<MyHomePage> {
       _isPlaying = true;
     });
 
-    if (_isResting && _restRemainingSeconds > 0) {
-      _startRestTimer();
+    if (_isResting) {
+      _startRestTimer(reset: false);
     }
 
     for (final entry in _cardioRemainingSeconds.entries) {
@@ -192,8 +217,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _initializeWorkoutProgress() {
-    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    final now = DateTime.now();
+    _workoutProgressDate = now;
+    final routine = _workoutProvider.getRoutineForDate(now);
     _exerciseSetProgress.clear();
+    _workoutWeights.clear();
     _finalizedSetIndexes.clear();
     _cardioTimers.forEach((key, timer) => timer?.cancel());
     _cardioTimers.clear();
@@ -207,6 +235,11 @@ class _MyHomePageState extends State<MyHomePage> {
         null,
         growable: false,
       );
+      _workoutWeights[exercise.name] = _workoutProvider.nextWorkoutWeight(
+        exercise.name,
+        exercise.weight.toDouble(),
+        now,
+      );
       if (exercise.type == '유산소') {
         _cardioRemainingSeconds[exercise.name] = exercise.cardioSeconds;
         _cardioRunning[exercise.name] = false;
@@ -214,8 +247,10 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     _isResting = false;
-    _restRemainingSeconds = _restSeconds;
+    _restElapsedSeconds = 0;
+    _restAlertStage = 0;
     _restTimer?.cancel();
+    _stopRestAlarm();
   }
 
   String _formatDuration(int totalSeconds) {
@@ -224,6 +259,14 @@ class _MyHomePageState extends State<MyHomePage> {
     final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
     return '$hours:$minutes:$seconds';
   }
+
+  RestTimerSettings get _activeRestTimerSettings => RestTimerSettings(
+    initialSeconds: _restSeconds,
+    alertSeconds: _restAlertSeconds,
+  );
+
+  List<int> get _restThresholds => _activeRestTimerSettings.thresholds;
+  int get _restAlertThresholdCount => _restThresholds.length;
 
   void _startCardioTimer(String exerciseName) {
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
@@ -300,12 +343,10 @@ class _MyHomePageState extends State<MyHomePage> {
         _exerciseSetProgress[exerciseName] ??
         List<int?>.filled(exercise.sets, null, growable: false);
 
-    for (var index = 0; index < progress.length; index++) {
-      if (progress[index] == null || !_isSetFinalized(exerciseName, index)) {
-        return false;
-      }
-    }
-    return true;
+    return exercise.hasCompletedAllSets(
+      progress,
+      _finalizedSetIndexes[exerciseName] ?? const <int>{},
+    );
   }
 
   bool _isExerciseUnlocked(String exerciseName) {
@@ -397,34 +438,68 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {});
   }
 
-  void _startRestTimer() {
+  void _startRestTimer({bool reset = true}) {
     _restTimer?.cancel();
+    _stopRestAlarm();
     _isResting = true;
-    _restRemainingSeconds = _restSeconds;
+    if (reset) {
+      _restElapsedSeconds = 0;
+      _restAlertStage = 0;
+    }
     _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
-      if (_restRemainingSeconds <= 1) {
-        timer.cancel();
-        if (mounted) {
-          setState(() {
-            _isResting = false;
-            _restRemainingSeconds = _restSeconds;
-          });
-        }
-        return;
-      }
-
       setState(() {
-        _restRemainingSeconds -= 1;
+        _restElapsedSeconds += 1;
+        final reachedStage = _activeRestTimerSettings.alertStageAt(
+          _restElapsedSeconds,
+        );
+        while (_restAlertStage < reachedStage) {
+          _restAlertStage++;
+          _playRestAlarm();
+        }
       });
     });
   }
 
-  void _stopRestTimer() {
+  void _stopRestTimer({bool reset = true}) {
     _restTimer?.cancel();
     _restTimer = null;
-    _isResting = false;
-    _restRemainingSeconds = _restSeconds;
+    _stopRestAlarm();
+    if (reset) {
+      _isResting = false;
+      _restElapsedSeconds = 0;
+      _restAlertStage = 0;
+    }
+  }
+
+  void _playRestAlarm() {
+    _restAlarmTimer?.cancel();
+    _restAlarmTicksRemaining = 5;
+    void playAlert() {
+      unawaited(SystemSound.play(SystemSoundType.alert));
+      unawaited(HapticFeedback.lightImpact());
+      _restAlarmTicksRemaining--;
+    }
+
+    playAlert();
+    _restAlarmTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_restAlarmTicksRemaining <= 0) {
+        timer.cancel();
+        _restAlarmTimer = null;
+        return;
+      }
+      playAlert();
+      if (_restAlarmTicksRemaining <= 0) {
+        timer.cancel();
+        _restAlarmTimer = null;
+      }
+    });
+  }
+
+  void _stopRestAlarm() {
+    _restAlarmTimer?.cancel();
+    _restAlarmTimer = null;
+    _restAlarmTicksRemaining = 0;
   }
 
   List<String> _todayWorkoutSummary() {
@@ -511,7 +586,9 @@ class _MyHomePageState extends State<MyHomePage> {
   void _addSplitTarget() {
     if (_splitTargets.length >= 7) return;
     setState(() {
-      _splitTargets.add('휴식');
+      _splitTargets.add(
+        _splitTargets.length == 1 ? '하체' : '분할 ${_splitTargets.length + 1}',
+      );
       _splitTargetSessions.add([
         SplitSession(type: '운동'),
         SplitSession(type: '유산소'),
@@ -660,7 +737,11 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void _setSplitSessionWeight(int targetIndex, int sessionIndex, int? weight) {
+  void _setSplitSessionWeight(
+    int targetIndex,
+    int sessionIndex,
+    double? weight,
+  ) {
     setState(() {
       _splitTargetSessions[targetIndex][sessionIndex].weight = weight;
     });
@@ -675,16 +756,6 @@ class _MyHomePageState extends State<MyHomePage> {
   void _setSplitSessionReps(int targetIndex, int sessionIndex, int? reps) {
     setState(() {
       _splitTargetSessions[targetIndex][sessionIndex].reps = reps;
-    });
-  }
-
-  void _setSplitSessionRestSeconds(
-    int targetIndex,
-    int sessionIndex,
-    int restSeconds,
-  ) {
-    setState(() {
-      _splitTargetSessions[targetIndex][sessionIndex].restSeconds = restSeconds;
     });
   }
 
@@ -881,7 +952,6 @@ class _MyHomePageState extends State<MyHomePage> {
                 weight: exercise.type == '유산소' ? null : exercise.weight,
                 sets: exercise.type == '유산소' ? 1 : exercise.sets,
                 reps: exercise.type == '유산소' ? null : exercise.reps,
-                restSeconds: 60,
                 cardioSeconds: exercise.type == '유산소'
                     ? exercise.cardioSeconds
                     : 0,
@@ -965,10 +1035,17 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void _toggleAutoSync(bool value) {
-    setState(() {
-      _autoSync = value;
-    });
+  Future<void> _toggleExerciseProgression(String exercise, bool enabled) async {
+    await _workoutProvider.setExerciseProgressionEnabled(exercise, enabled);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _changeExerciseProgressionAmount(
+    String exercise,
+    double incrementKg,
+  ) async {
+    await _workoutProvider.setExerciseProgressionAmount(exercise, incrementKg);
+    if (mounted) setState(() {});
   }
 
   void _showWeekdayRoutineDialog() {
@@ -1160,10 +1237,17 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  void _changeRestSeconds(int delta) {
+  Future<void> _changeRestTimerSettings(RestTimerSettings settings) async {
     setState(() {
-      _restSeconds = (_restSeconds + delta).clamp(10, 180);
+      _restSeconds = settings.initialSeconds;
+      _restAlertSeconds = List.of(settings.alertSeconds);
+      if (_isResting) {
+        _restAlertStage = _activeRestTimerSettings.alertStageAt(
+          _restElapsedSeconds,
+        );
+      }
     });
+    await _workoutProvider.setRestTimerSettings(settings);
   }
 
   bool _isTodayWorkoutComplete() {
@@ -1193,7 +1277,7 @@ class _MyHomePageState extends State<MyHomePage> {
         .map(
           (exercise) => WorkoutRecord(
             exercise: exercise.name,
-            weight: exercise.weight,
+            weight: _workoutWeights[exercise.name] ?? exercise.weight,
             date: now,
           ),
         )
@@ -1244,6 +1328,42 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _finishWorkout() async {
     _stopRestTimer();
     _cardioTimers.forEach((_, timer) => timer?.cancel());
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    if (routine != null) {
+      final updatedWeights = <String, double>{};
+      for (final exercise in routine.exercises) {
+        final progress = _exerciseSetProgress[exercise.name];
+        final finalized = _finalizedSetIndexes[exercise.name] ?? const <int>{};
+        final appliedWeight = _workoutWeights[exercise.name];
+        if (progress != null && appliedWeight != null) {
+          final completedWeight = exercise.completedProgressionWeight(
+            progressionEnabled: _workoutProvider
+                .progressionForExercise(exercise.name)
+                .enabled,
+            repetitionsBySet: progress,
+            finalizedSetIndexes: finalized,
+            appliedWeight: appliedWeight,
+          );
+          if (completedWeight != null) {
+            updatedWeights[exercise.name] = completedWeight;
+          }
+        }
+      }
+      if (updatedWeights.isNotEmpty) {
+        await _workoutProvider.updateRoutineExerciseWeights(
+          routine.id,
+          updatedWeights,
+        );
+        if (_selectedRoutineId == routine.id) {
+          for (final sessions in _splitTargetSessions) {
+            for (final session in sessions) {
+              final updatedWeight = updatedWeights[session.exercise];
+              if (updatedWeight != null) session.weight = updatedWeight;
+            }
+          }
+        }
+      }
+    }
     await _workoutProvider.saveCompletedWorkout(
       DateTime.now(),
       _completedWorkoutRecords(),
@@ -1294,6 +1414,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     _restTimer?.cancel();
+    _stopRestAlarm();
     _messageTimer?.cancel();
     _sessionAutoScrollTimer?.cancel();
     _routineEditorScrollController.dispose();
@@ -1458,10 +1579,7 @@ class _MyHomePageState extends State<MyHomePage> {
           onSetSplitSessionWeight: _setSplitSessionWeight,
           onSetSplitSessionSets: _setSplitSessionSets,
           onSetSplitSessionReps: _setSplitSessionReps,
-          onSetSplitSessionRestSeconds: _setSplitSessionRestSeconds,
           onSetSplitSessionCardioSeconds: _setSplitSessionCardioSeconds,
-          restSeconds: _restSeconds,
-          onChangeRestSeconds: _changeRestSeconds,
           weeklyRoutine: _weeklyRoutine,
           selectedRoutineMode: _selectedRoutineMode,
           selectedWeekday: _selectedWeekday,
@@ -1530,12 +1648,18 @@ class _MyHomePageState extends State<MyHomePage> {
         hasRoutineForDate: _hasRoutineIndicatorForDate,
         isCompletedForDate: _workoutProvider.isWorkoutCompletedOn,
       ),
-      ProgressPage(records: _workoutProvider.workoutRecords),
+      ProgressPage(
+        records: _workoutProvider.workoutRecords,
+        exerciseProgressions: _workoutProvider.exerciseProgressions,
+        onToggleProgression: _toggleExerciseProgression,
+        onChangeProgressionAmount: _changeExerciseProgressionAmount,
+      ),
       SettingsPage(
-        autoSync: _autoSync,
-        restSeconds: _restSeconds,
-        onToggleAutoSync: _toggleAutoSync,
-        onChangeRestSeconds: _changeRestSeconds,
+        restTimerSettings: _workoutProvider.restTimerSettings.copyWith(
+          initialSeconds: _restSeconds,
+          alertSeconds: List.unmodifiable(_restAlertSeconds),
+        ),
+        onChangeRestTimerSettings: _changeRestTimerSettings,
       ),
     ];
 
@@ -1639,6 +1763,21 @@ class _MyHomePageState extends State<MyHomePage> {
 
     final todayWorkoutList = _todayWorkoutSummary();
     final todayRoutine = _workoutProvider.getRoutineForDate(DateTime.now());
+    final restAlertProgress = _restAlertThresholdCount == 0
+        ? 0.0
+        : (_restAlertStage / _restAlertThresholdCount)
+              .clamp(0.0, 1.0)
+              .toDouble();
+    final restAlertColor = Color.lerp(
+      Colors.red.shade50,
+      Colors.red.shade300,
+      restAlertProgress,
+    )!;
+    final restAlertBorderColor = Color.lerp(
+      Colors.red.shade200,
+      Colors.red.shade700,
+      restAlertProgress,
+    )!;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: statusOverlayStyle,
@@ -1819,7 +1958,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                               ),
                                             ),
                                             Text(
-                                              '${exercise.weight}kg',
+                                              '${formatWeight(_workoutWeights[exercise.name] ?? exercise.weight.toDouble())}kg',
                                               style: const TextStyle(
                                                 color: Colors.black87,
                                                 fontSize: 15,
@@ -1944,28 +2083,42 @@ class _MyHomePageState extends State<MyHomePage> {
                                     horizontal: 16,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.red.shade50,
+                                    color: restAlertColor,
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: Colors.red.shade200,
+                                      color: restAlertBorderColor,
                                     ),
                                   ),
                                   child: Row(
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Expanded(
-                                        child: Text(
-                                          '휴식',
-                                          style: TextStyle(
-                                            color: Colors.black87,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w700,
-                                          ),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              '휴식',
+                                              style: TextStyle(
+                                                color: Colors.black87,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            if (_restAlertStage > 0)
+                                              Text(
+                                                '알림 $_restAlertStage / $_restAlertThresholdCount',
+                                                style: const TextStyle(
+                                                  color: Colors.black54,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                          ],
                                         ),
                                       ),
                                       Text(
-                                        '$_restRemainingSeconds초',
+                                        _formatDuration(_restElapsedSeconds),
                                         style: const TextStyle(
                                           color: Colors.red,
                                           fontSize: 18,

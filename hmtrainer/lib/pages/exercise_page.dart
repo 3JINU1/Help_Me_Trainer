@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../exercise_catalog.dart';
 import '../models.dart';
+import '../widgets/cardio_duration_picker.dart';
 
 class ExercisePage extends StatefulWidget {
   const ExercisePage({
@@ -32,10 +33,7 @@ class ExercisePage extends StatefulWidget {
     required this.onSetSplitSessionWeight,
     required this.onSetSplitSessionSets,
     required this.onSetSplitSessionReps,
-    required this.onSetSplitSessionRestSeconds,
     required this.onSetSplitSessionCardioSeconds,
-    required this.restSeconds,
-    required this.onChangeRestSeconds,
     required this.weeklyRoutine,
     required this.selectedRoutineMode,
     required this.selectedWeekday,
@@ -72,18 +70,14 @@ class ExercisePage extends StatefulWidget {
   onSetSplitSessionType;
   final void Function(int targetIndex, int sessionIndex, String? exercise)
   onSetSplitSessionExercise;
-  final void Function(int targetIndex, int sessionIndex, int? weight)
+  final void Function(int targetIndex, int sessionIndex, double? weight)
   onSetSplitSessionWeight;
   final void Function(int targetIndex, int sessionIndex, int? sets)
   onSetSplitSessionSets;
   final void Function(int targetIndex, int sessionIndex, int? reps)
   onSetSplitSessionReps;
-  final void Function(int targetIndex, int sessionIndex, int restSeconds)
-  onSetSplitSessionRestSeconds;
   final void Function(int targetIndex, int sessionIndex, int seconds)
   onSetSplitSessionCardioSeconds;
-  final int restSeconds;
-  final void Function(int delta) onChangeRestSeconds;
   final Map<String, List<String>> weeklyRoutine;
   final String selectedRoutineMode;
   final String selectedWeekday;
@@ -97,8 +91,6 @@ class ExercisePage extends StatefulWidget {
 }
 
 class _ExercisePageState extends State<ExercisePage> {
-  final Map<String, TextEditingController> _cardioTimeControllers = {};
-
   DragBoundaryDelegate<Rect> _sessionDragBoundary(BuildContext context) {
     if (_currentSessionDragBounds() == null) {
       return DragBoundary.forRectOf(context);
@@ -144,13 +136,6 @@ class _ExercisePageState extends State<ExercisePage> {
       viewport.right,
       dragBottom < dragTop ? dragTop : dragBottom,
     );
-  }
-
-  String _formatCardioDuration(int totalSeconds) {
-    final hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-    final minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-    return '$hours:$minutes:$seconds';
   }
 
   bool _matchesExerciseSearch(String exercise, String query) {
@@ -242,23 +227,6 @@ class _ExercisePageState extends State<ExercisePage> {
     return differences <= 1;
   }
 
-  TextEditingController _cardioTimeControllerFor(
-    int targetIndex,
-    int sessionIndex,
-  ) {
-    final key = 'cardio-$targetIndex-$sessionIndex';
-    final existing = _cardioTimeControllers[key];
-    if (existing != null) {
-      return existing;
-    }
-    final cardioSeconds =
-        widget.splitTargetSessions[targetIndex][sessionIndex].cardioSeconds;
-    final text = cardioSeconds > 0 ? _formatCardioDuration(cardioSeconds) : '';
-    final controller = TextEditingController(text: text);
-    _cardioTimeControllers[key] = controller;
-    return controller;
-  }
-
   void _openExercisePicker({
     required int sessionIndex,
     required SplitSession session,
@@ -301,7 +269,7 @@ class _ExercisePageState extends State<ExercisePage> {
               contentTextStyle: const TextStyle(color: Colors.black87),
               content: SizedBox(
                 width: double.maxFinite,
-                height: (visibleHeight * 0.68).clamp(280.0, 460.0),
+                height: ((visibleHeight - 180) * 0.94).clamp(240.0, 620.0),
                 child: Column(
                   children: [
                     ConstrainedBox(
@@ -417,17 +385,18 @@ class _ExercisePageState extends State<ExercisePage> {
                                     width: 56,
                                     height: 56,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) =>
-                                        Container(
-                                          width: 56,
-                                          height: 56,
-                                          color: Colors.red.shade50,
-                                          alignment: Alignment.center,
-                                          child: Icon(
-                                            Icons.fitness_center,
-                                            color: Colors.red.shade300,
-                                          ),
-                                        ),
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            Container(
+                                              width: 56,
+                                              height: 56,
+                                              color: Colors.red.shade50,
+                                              alignment: Alignment.center,
+                                              child: Icon(
+                                                Icons.fitness_center,
+                                                color: Colors.red.shade300,
+                                              ),
+                                            ),
                                   ),
                                 ),
                                 title: Text(
@@ -468,10 +437,7 @@ class _ExercisePageState extends State<ExercisePage> {
                     const SizedBox(height: 4),
                     Text(
                       '© Gym visual — https://gymvisual.com/',
-                      style: TextStyle(
-                        color: Colors.black54,
-                        fontSize: 10,
-                      ),
+                      style: TextStyle(color: Colors.black54, fontSize: 10),
                     ),
                   ],
                 ),
@@ -583,7 +549,9 @@ class _ExercisePageState extends State<ExercisePage> {
   }) {
     return TextFormField(
       initialValue: value?.toString() ?? '',
-      keyboardType: TextInputType.number,
+      keyboardType: const TextInputType.numberWithOptions(
+        decimal: true,
+      ),
       style: const TextStyle(color: Colors.black87),
       decoration: InputDecoration(
         labelText: label,
@@ -716,7 +684,7 @@ class _ExercisePageState extends State<ExercisePage> {
                                   decoration: const InputDecoration(
                                     border: InputBorder.none,
                                   ),
-                                  items: ['', '운동', '유산소', '휴식']
+                                  items: ['', '운동', '유산소']
                                       .map(
                                         (type) => DropdownMenuItem(
                                           value: type,
@@ -814,8 +782,13 @@ class _ExercisePageState extends State<ExercisePage> {
                               children: [
                                 Expanded(
                                   child: TextFormField(
+                                    key: ValueKey(
+                                      'weight-${session.exercise}-${session.weight}',
+                                    ),
                                     initialValue:
-                                        session.weight?.toString() ?? '',
+                                        session.weight == null
+                                        ? ''
+                                        : formatWeight(session.weight!),
                                     keyboardType: TextInputType.number,
                                     style: const TextStyle(
                                       color: Colors.black87,
@@ -833,7 +806,7 @@ class _ExercisePageState extends State<ExercisePage> {
                                         widget.onSetSplitSessionWeight(
                                           widget.selectedSplitTargetIndex,
                                           sessionIndex,
-                                          int.tryParse(value),
+                                          double.tryParse(value),
                                         ),
                                   ),
                                 ),
@@ -906,71 +879,14 @@ class _ExercisePageState extends State<ExercisePage> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _cardioTimeControllerFor(
-                                      widget.selectedSplitTargetIndex,
-                                      sessionIndex,
-                                    ),
-                                    keyboardType: TextInputType.number,
-                                    style: const TextStyle(
-                                      color: Colors.black87,
-                                    ),
-                                    decoration: const InputDecoration(
-                                      labelText: '수행시간 (HH:MM:SS)',
-                                      labelStyle: TextStyle(
-                                        color: Colors.black87,
-                                      ),
-                                      filled: true,
-                                      fillColor: Colors.white,
-                                      border: OutlineInputBorder(),
-                                    ),
-                                    onChanged: (value) {
-                                      final parts = value.split(':');
-                                      if (parts.length != 3) return;
-                                      final hours = int.tryParse(parts[0]) ?? 0;
-                                      final minutes =
-                                          int.tryParse(parts[1]) ?? 0;
-                                      final seconds =
-                                          int.tryParse(parts[2]) ?? 0;
-                                      final totalSeconds =
-                                          hours * 3600 + minutes * 60 + seconds;
-                                      widget.onSetSplitSessionCardioSeconds(
-                                        widget.selectedSplitTargetIndex,
-                                        sessionIndex,
-                                        totalSeconds,
-                                      );
-                                      final controller =
-                                          _cardioTimeControllers['cardio-${widget.selectedSplitTargetIndex}-$sessionIndex'];
-                                      if (controller != null &&
-                                          controller.text !=
-                                              _formatCardioDuration(
-                                                totalSeconds,
-                                              )) {
-                                        controller.text = _formatCardioDuration(
-                                          totalSeconds,
-                                        );
-                                        controller.selection =
-                                            TextSelection.fromPosition(
-                                              TextPosition(
-                                                offset: controller.text.length,
-                                              ),
-                                            );
-                                      }
-                                    },
+                            CardioDurationPicker(
+                              durationSeconds: session.cardioSeconds,
+                              onChanged: (seconds) =>
+                                  widget.onSetSplitSessionCardioSeconds(
+                                    widget.selectedSplitTargetIndex,
+                                    sessionIndex,
+                                    seconds,
                                   ),
-                                ),
-                              ],
-                            ),
-                          ] else ...[
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Text(
-                                '추가 설정 없음',
-                                style: TextStyle(color: Colors.black87),
-                              ),
                             ),
                           ],
                         ],
@@ -1039,7 +955,7 @@ class _ExercisePageState extends State<ExercisePage> {
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
-                  controller: widget.weeklyWorkoutController,
+                 controller: widget.weeklyWorkoutController,
                   decoration: const InputDecoration(
                     filled: true,
                     fillColor: Colors.white,

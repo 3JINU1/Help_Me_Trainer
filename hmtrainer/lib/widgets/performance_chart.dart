@@ -100,10 +100,10 @@ class _PerformancePainter extends CustomPainter {
 
     final textPainter = TextPainter(textDirection: TextDirection.ltr);
     final labels = [
-      '${maxWeight.toInt()}kg',
-      '${(maxWeight * 0.75).toInt()}kg',
-      '${(maxWeight * 0.5).toInt()}kg',
-      '${(maxWeight * 0.25).toInt()}kg',
+      '${formatWeight(maxWeight)}kg',
+      '${formatWeight(maxWeight * 0.75)}kg',
+      '${formatWeight(maxWeight * 0.5)}kg',
+      '${formatWeight(maxWeight * 0.25)}kg',
       '0kg',
     ];
     for (var i = 0; i < labels.length; i++) {

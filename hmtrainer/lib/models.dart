@@ -1,3 +1,7 @@
+String formatWeight(double weight) {
+  return weight.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+}
+
 class Exercise {
   Exercise(this.name);
   final String name;
@@ -12,20 +16,20 @@ class ExerciseCategory {
 class WorkoutRecord {
   WorkoutRecord({
     required this.exercise,
-    required this.weight,
+    required num weight,
     required this.date,
-  });
+  }) : weight = weight.toDouble();
 
   factory WorkoutRecord.fromJson(Map<String, dynamic> json) {
     return WorkoutRecord(
       exercise: json['exercise'] as String,
-      weight: (json['weight'] as num?)?.toInt() ?? 0,
+      weight: (json['weight'] as num?)?.toDouble() ?? 0,
       date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
     );
   }
 
   final String exercise;
-  final int weight;
+  final double weight;
   final DateTime date;
 
   Map<String, dynamic> toJson() {
@@ -44,16 +48,14 @@ class SplitSession {
     this.weight,
     this.sets,
     this.reps,
-    this.restSeconds = 60,
     this.cardioSeconds = 0,
   });
 
   String type;
   String? exercise;
-  int? weight;
+  double? weight;
   int? sets;
   int? reps;
-  int restSeconds;
   int cardioSeconds;
 }
 
@@ -62,15 +64,15 @@ class RoutineExercise {
     required this.name,
     required this.sets,
     required this.reps,
-    required this.weight,
+    required num weight,
     this.type = '운동',
     this.cardioSeconds = 0,
-  });
+  }) : weight = weight.toDouble();
 
   final String name;
   final int sets;
   final int reps;
-  final int weight;
+  final double weight;
   final String type;
   final int cardioSeconds;
 
@@ -79,7 +81,7 @@ class RoutineExercise {
       name: json['name'] as String,
       sets: (json['sets'] as num?)?.toInt() ?? 0,
       reps: (json['reps'] as num?)?.toInt() ?? 0,
-      weight: (json['weight'] as num?)?.toInt() ?? 0,
+      weight: (json['weight'] as num?)?.toDouble() ?? 0,
       type: json['type'] as String? ?? '운동',
       cardioSeconds: (json['cardioSeconds'] as num?)?.toInt() ?? 0,
     );
@@ -94,6 +96,48 @@ class RoutineExercise {
       'type': type,
       'cardioSeconds': cardioSeconds,
     };
+  }
+
+  RoutineExercise copyWith({double? weight}) {
+    return RoutineExercise(
+      name: name,
+      sets: sets,
+      reps: reps,
+      weight: weight ?? this.weight,
+      type: type,
+      cardioSeconds: cardioSeconds,
+    );
+  }
+
+  bool hasCompletedAllSets(
+    List<int?> repetitionsBySet,
+    Set<int> finalizedSetIndexes,
+  ) {
+    if (type == '유산소' ||
+        sets <= 0 ||
+        repetitionsBySet.length < sets ||
+        finalizedSetIndexes.length < sets) {
+      return false;
+    }
+    return List<bool>.generate(
+      sets,
+      (index) =>
+          repetitionsBySet[index] == reps &&
+          finalizedSetIndexes.contains(index),
+    ).every((completed) => completed);
+  }
+
+  double? completedProgressionWeight({
+    required bool progressionEnabled,
+    required List<int?> repetitionsBySet,
+    required Set<int> finalizedSetIndexes,
+    required double appliedWeight,
+  }) {
+    if (!progressionEnabled ||
+        !hasCompletedAllSets(repetitionsBySet, finalizedSetIndexes)) {
+      return null;
+    }
+    return appliedWeight;
   }
 }
 

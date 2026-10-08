@@ -4,6 +4,88 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models.dart';
 
+class ExerciseProgressionSetting {
+  const ExerciseProgressionSetting({
+    this.enabled = false,
+    this.incrementKg = 1.25,
+  });
+
+  final bool enabled;
+  final double incrementKg;
+
+  ExerciseProgressionSetting copyWith({bool? enabled, double? incrementKg}) {
+    return ExerciseProgressionSetting(
+      enabled: enabled ?? this.enabled,
+      incrementKg: incrementKg ?? this.incrementKg,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'incrementKg': incrementKg,
+  };
+
+  factory ExerciseProgressionSetting.fromJson(Map<String, dynamic> json) {
+    final storedIncrement =
+        (json['incrementKg'] as num?)?.toDouble() ?? 1.25;
+    final clampedIncrement = storedIncrement.clamp(1.25, 10).toDouble();
+    final increment =
+        1.25 + ((clampedIncrement - 1.25) / 0.25).round() * 0.25;
+    return ExerciseProgressionSetting(
+      enabled: json['enabled'] as bool? ?? false,
+      incrementKg: increment,
+    );
+  }
+}
+
+class RestTimerSettings {
+  const RestTimerSettings({
+    this.initialSeconds = 60,
+    this.alertSeconds = const [],
+  });
+
+  final int initialSeconds;
+  final List<int> alertSeconds;
+
+  static const defaultInitialSeconds = 60;
+  static const minimumInitialSeconds = 10;
+  static const maximumInitialSeconds = 180;
+  static const minimumAlertGapSeconds = 30;
+  static const maximumAlertSeconds = 3600;
+
+  RestTimerSettings copyWith({int? initialSeconds, List<int>? alertSeconds}) {
+    return RestTimerSettings(
+      initialSeconds: initialSeconds ?? this.initialSeconds,
+      alertSeconds: alertSeconds ?? this.alertSeconds,
+    );
+  }
+
+  List<int> get thresholds => [initialSeconds, ...alertSeconds];
+
+  int alertStageAt(int elapsedSeconds) =>
+      thresholds.takeWhile((seconds) => seconds <= elapsedSeconds).length;
+
+  bool get isValid {
+    if (initialSeconds < minimumInitialSeconds ||
+        initialSeconds > maximumInitialSeconds) {
+      return false;
+    }
+    var previous = initialSeconds;
+    for (final seconds in alertSeconds) {
+      if (seconds < previous + minimumAlertGapSeconds ||
+          seconds > maximumAlertSeconds) {
+        return false;
+      }
+      previous = seconds;
+    }
+    return true;
+  }
+
+  static const defaults = RestTimerSettings(
+    initialSeconds: defaultInitialSeconds,
+  );
+}
+
 class WorkoutProvider {
   Future<void> get ready => _ready;
 
@@ -22,9 +104,14 @@ class WorkoutProvider {
     '일': null,
   };
   final Map<String, String> _dateRoutineIds = {};
+  final Map<String, ExerciseProgressionSetting> _exerciseProgressions = {};
+  RestTimerSettings _restTimerSettings = RestTimerSettings.defaults;
 
   List<WorkoutRoutine> get routines => List.unmodifiable(_routines);
   List<WorkoutRecord> get workoutRecords => List.unmodifiable(_workoutRecords);
+  Map<String, ExerciseProgressionSetting> get exerciseProgressions =>
+      Map.unmodifiable(_exerciseProgressions);
+  RestTimerSettings get restTimerSettings => _restTimerSettings;
   Map<String, String?> get weekdayRoutineIds =>
       Map.unmodifiable(_weekdayRoutineIds);
 
@@ -45,6 +132,50 @@ class WorkoutProvider {
       ..addAll(
         recordsJson.map((json) => WorkoutRecord.fromJson(jsonDecode(json))),
       );
+
+    final progressionJson = prefs.getString('exercise_progressions');
+    _exerciseProgressions
+      ..clear()
+      ..addAll(
+        progressionJson == null
+            ? const <String, ExerciseProgressionSetting>{}
+            : (jsonDecode(progressionJson) as Map<String, dynamic>).map(
+                (name, value) => MapEntry(
+                  name,
+                  ExerciseProgressionSetting.fromJson(
+                    value as Map<String, dynamic>,
+                  ),
+                ),
+              ),
+      );
+
+    final storedInitialSeconds =
+        prefs.getInt('rest_timer_initial_seconds') ??
+        RestTimerSettings.defaultInitialSeconds;
+    final initialSeconds = storedInitialSeconds
+        .clamp(
+          RestTimerSettings.minimumInitialSeconds,
+          RestTimerSettings.maximumInitialSeconds,
+        )
+        .toInt();
+    var previousAlertSeconds = initialSeconds;
+    final alertSeconds = <int>[];
+    for (final value
+        in prefs.getStringList('rest_timer_alert_seconds') ?? const <String>[]) {
+      final seconds = int.tryParse(value);
+      if (seconds == null ||
+          seconds < previousAlertSeconds +
+              RestTimerSettings.minimumAlertGapSeconds ||
+          seconds > RestTimerSettings.maximumAlertSeconds) {
+        continue;
+      }
+      alertSeconds.add(seconds);
+      previousAlertSeconds = seconds;
+    }
+    _restTimerSettings = RestTimerSettings(
+      initialSeconds: initialSeconds,
+      alertSeconds: List.unmodifiable(alertSeconds),
+    );
 
     _completedWorkoutDates
       ..clear()
@@ -73,12 +204,126 @@ class WorkoutProvider {
     await _persistToStorage();
   }
 
+  ExerciseProgressionSetting progressionForExercise(String exercise) =>
+      _exerciseProgressions[exercise] ??
+      const ExerciseProgressionSetting();
+
+  double nextWorkoutWeight(
+    String exercise,
+    double routineWeight,
+    DateTime date,
+  ) {
+    final records =
+        _workoutRecords
+            .where((record) => record.exercise == exercise)
+            .toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
+    final recordsForDate = records.where(
+      (record) =>
+          record.date.year == date.year &&
+          record.date.month == date.month &&
+          record.date.day == date.day,
+    );
+    final baseline = recordsForDate.isNotEmpty
+        ? recordsForDate.last.weight
+        : records.isNotEmpty
+        ? records.last.weight
+        : routineWeight;
+    final progression = progressionForExercise(exercise);
+    return baseline +
+        (progression.enabled && recordsForDate.isEmpty
+            ? progression.incrementKg
+            : 0);
+  }
+
+  Future<void> setExerciseProgressionEnabled(
+    String exercise,
+    bool enabled,
+  ) async {
+    await ready;
+    final current = progressionForExercise(exercise);
+    _exerciseProgressions[exercise] = current.copyWith(enabled: enabled);
+    await _persistExerciseProgressions();
+  }
+
+  Future<void> setExerciseProgressionAmount(
+    String exercise,
+    double incrementKg,
+  ) async {
+    if (incrementKg < 1.25 ||
+        incrementKg > 10 ||
+        ((incrementKg - 1.25) / 0.25 - ((incrementKg - 1.25) / 0.25).round())
+                .abs() >
+            0.000001) {
+      throw ArgumentError.value(incrementKg, 'incrementKg');
+    }
+    await ready;
+    final current = progressionForExercise(exercise);
+    _exerciseProgressions[exercise] = current.copyWith(
+      incrementKg: incrementKg,
+    );
+    await _persistExerciseProgressions();
+  }
+
+  Future<void> _persistExerciseProgressions() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'exercise_progressions',
+      jsonEncode(
+        _exerciseProgressions.map(
+          (name, setting) => MapEntry(name, setting.toJson()),
+        ),
+      ),
+    );
+  }
+
+  Future<void> setRestTimerSettings(RestTimerSettings settings) async {
+    if (!settings.isValid) {
+      throw ArgumentError.value(settings, 'settings');
+    }
+    await ready;
+    _restTimerSettings = settings.copyWith(
+      alertSeconds: List.unmodifiable(settings.alertSeconds),
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      'rest_timer_initial_seconds',
+      _restTimerSettings.initialSeconds,
+    );
+    await prefs.setStringList(
+      'rest_timer_alert_seconds',
+      _restTimerSettings.alertSeconds
+          .map((seconds) => seconds.toString())
+          .toList(),
+    );
+  }
+
   Future<void> updateRoutine(WorkoutRoutine routine) async {
     final index = _routines.indexWhere((item) => item.id == routine.id);
     if (index >= 0) {
       _routines[index] = routine;
       await _persistToStorage();
     }
+  }
+
+  Future<void> updateRoutineExerciseWeights(
+    String routineId,
+    Map<String, double> weights,
+  ) async {
+    final routine = getRoutineById(routineId);
+    if (routine == null || weights.isEmpty) return;
+    final updatedRoutine = WorkoutRoutine(
+      id: routine.id,
+      name: routine.name,
+      exercises: routine.exercises
+          .map(
+            (exercise) => weights.containsKey(exercise.name)
+                ? exercise.copyWith(weight: weights[exercise.name])
+                : exercise,
+          )
+          .toList(),
+    );
+    await updateRoutine(updatedRoutine);
   }
 
   Future<void> addRoutine(WorkoutRoutine routine) async {
