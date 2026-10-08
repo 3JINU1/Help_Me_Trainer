@@ -13,9 +13,14 @@ import 'pages/settings_page.dart';
 import 'pages/workout_provider.dart';
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  const MyHomePage({
+    super.key,
+    required this.title,
+    this.workoutProvider,
+  });
 
   final String title;
+  final WorkoutProvider? workoutProvider;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -56,7 +61,7 @@ class _MyHomePageState extends State<MyHomePage> {
       TextEditingController();
   final TextEditingController _planController = TextEditingController();
   final Map<DateTime, List<String>> _plannedWorkouts = {};
-  final WorkoutProvider _workoutProvider = WorkoutProvider();
+  late final WorkoutProvider _workoutProvider;
   final Uuid _uuid = const Uuid();
   final List<String> _splitTargets = ['상체'];
   int _selectedSplitTargetIndex = 0;
@@ -85,6 +90,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    _workoutProvider = widget.workoutProvider ?? WorkoutProvider();
     _loadExerciseCatalog();
     _loadWorkoutData();
   }
@@ -184,24 +190,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _toggleWorkoutMode() {
-    final hasExistingProgress =
-        _exerciseSetProgress.isNotEmpty ||
-        _finalizedSetIndexes.isNotEmpty ||
-        _cardioRemainingSeconds.isNotEmpty;
     final today = DateTime.now();
-    final progressIsForToday =
-        _workoutProgressDate?.year == today.year &&
-        _workoutProgressDate?.month == today.month &&
-        _workoutProgressDate?.day == today.day;
-    final workoutIsCompletedToday = _workoutProvider.isWorkoutCompletedOn(
-      today,
-    );
 
     setState(() {
-      if (!_isWorkoutMode &&
-          hasExistingProgress &&
-          progressIsForToday &&
-          !workoutIsCompletedToday) {
+      if (!_isWorkoutMode && _canResumeWorkout(today)) {
+        _ensureWorkoutProgressForToday(today);
         _isWorkoutMode = true;
         _isPlaying = true;
         return;
@@ -216,8 +209,84 @@ class _MyHomePageState extends State<MyHomePage> {
     _syncRestTimerOverlay();
   }
 
+  bool _canResumeWorkout(DateTime date) {
+    final hasExistingProgress =
+        _exerciseSetProgress.isNotEmpty ||
+        _finalizedSetIndexes.isNotEmpty ||
+        _cardioRemainingSeconds.isNotEmpty;
+    final progressIsForDate =
+        _workoutProgressDate?.year == date.year &&
+        _workoutProgressDate?.month == date.month &&
+        _workoutProgressDate?.day == date.day;
+    return hasExistingProgress &&
+        progressIsForDate &&
+        !_workoutProvider.isWorkoutCompletedOn(date);
+  }
+
+  void _ensureWorkoutProgressForToday(DateTime date) {
+    final routine = _workoutProvider.getRoutineForDate(date);
+    if (routine == null) return;
+
+    final exerciseNames = routine.exercises.map((exercise) => exercise.name);
+    final activeExerciseNames = exerciseNames.toSet();
+    for (final name in _exerciseSetProgress.keys.toList()) {
+      if (activeExerciseNames.contains(name)) continue;
+      _exerciseSetProgress.remove(name);
+      _workoutWeights.remove(name);
+      _finalizedSetIndexes.remove(name);
+      _setTouchTimers.remove(name)?.values.forEach((timer) => timer?.cancel());
+      _cardioTimers.remove(name)?.cancel();
+      _cardioRemainingSeconds.remove(name);
+      _cardioRunning.remove(name);
+    }
+
+    for (final exercise in routine.exercises) {
+      final progress = _exerciseSetProgress[exercise.name];
+      if (progress == null) {
+        _exerciseSetProgress[exercise.name] = List<int?>.filled(
+          exercise.sets,
+          null,
+          growable: false,
+        );
+      } else if (progress.length != exercise.sets) {
+        final resized = List<int?>.filled(exercise.sets, null);
+        for (var index = 0;
+            index < progress.length && index < resized.length;
+            index++) {
+          resized[index] = progress[index];
+        }
+        _exerciseSetProgress[exercise.name] = resized;
+        _finalizedSetIndexes[exercise.name]?.removeWhere(
+          (index) => index >= exercise.sets,
+        );
+      }
+
+      _workoutWeights.putIfAbsent(
+        exercise.name,
+        () => _workoutProvider.nextWorkoutWeight(
+          exercise.name,
+          exercise.weight.toDouble(),
+          date,
+        ),
+      );
+      if (exercise.type == '유산소') {
+        _cardioRemainingSeconds.putIfAbsent(
+          exercise.name,
+          () => exercise.cardioSeconds,
+        );
+        _cardioRunning.putIfAbsent(exercise.name, () => false);
+      }
+    }
+  }
+
   void _toggleWorkoutPlaying() {
     if (!_isWorkoutMode) {
+      final today = DateTime.now();
+      if (_canResumeWorkout(today)) {
+        _ensureWorkoutProgressForToday(today);
+      } else {
+        _initializeWorkoutProgress();
+      }
       setState(() {
         _isWorkoutMode = true;
         _isPlaying = true;
@@ -1531,6 +1600,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _finishWorkout() async {
+    _ensureWorkoutProgressForToday(DateTime.now());
     _stopRestTimer();
     _cardioTimers.forEach((_, timer) => timer?.cancel());
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
@@ -2143,9 +2213,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
                                   final progress =
                                       _exerciseSetProgress[exercise.name] ??
-                                      List<int>.filled(
+                                      List<int?>.filled(
                                         exercise.sets,
-                                        exercise.reps,
+                                        null,
                                         growable: false,
                                       );
 
@@ -2217,6 +2287,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                                     );
 
                                                 return GestureDetector(
+                                                  key: Key(
+                                                    'today_set_${exercise.name}_$index',
+                                                  ),
                                                   onTap: isBlocked
                                                       ? null
                                                       : () => _recordSetValue(

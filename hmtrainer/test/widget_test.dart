@@ -5,10 +5,13 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:hmtrainer/home_page.dart';
 import 'package:hmtrainer/main.dart';
 import 'package:hmtrainer/models.dart';
 import 'package:hmtrainer/pages/progress_page.dart';
@@ -24,6 +27,93 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('운동'), findsOneWidget);
+  });
+
+  testWidgets('오늘 운동 세트가 비어 있는 상태로 시작해 완료 기록에 저장된다', (
+    WidgetTester tester,
+  ) async {
+    const routineId = 'today-workout-regression';
+    final weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+    final todayWeekday = weekdays[DateTime.now().weekday - 1];
+    SharedPreferences.setMockInitialValues({});
+    final workoutProvider = WorkoutProvider();
+    await workoutProvider.ready;
+    await workoutProvider.addRoutine(
+      WorkoutRoutine(
+        id: routineId,
+        name: '테스트 루틴',
+        exercises: [
+          RoutineExercise(name: '기존 운동', sets: 1, reps: 2, weight: 20),
+        ],
+      ),
+    );
+    await workoutProvider.assignRoutineToWeekday(todayWeekday, routineId);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MyHomePage(title: 'HMT', workoutProvider: workoutProvider),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.pumpAndSettle();
+
+    final existingSet = find.byKey(const Key('today_set_기존 운동_0'));
+    await tester.tap(existingSet);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+    await workoutProvider.addRoutine(
+      WorkoutRoutine(
+        id: routineId,
+        name: '업데이트된 테스트 루틴',
+        exercises: [
+          RoutineExercise(name: '기존 운동', sets: 1, reps: 2, weight: 20),
+          RoutineExercise(name: '새 운동', sets: 1, reps: 2, weight: 10),
+        ],
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.pumpAndSettle();
+
+    final setFinder = find.byKey(const Key('today_set_새 운동_0'));
+    expect(setFinder, findsOneWidget);
+    expect(
+      find.descendant(of: setFinder, matching: find.text('2')),
+      findsNothing,
+    );
+
+    await tester.tap(setFinder);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: setFinder, matching: find.text('2')),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pumpAndSettle();
+    final setCircle = tester.widget<AnimatedContainer>(
+      find.descendant(of: setFinder, matching: find.byType(AnimatedContainer)),
+    );
+    expect((setCircle.decoration! as BoxDecoration).color, Colors.red);
+
+    await tester.ensureVisible(find.text('운동 종료'));
+    await tester.tap(find.text('운동 종료'));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    expect(prefs.getStringList('completed_workout_dates'), contains(today));
+    final records = prefs
+        .getStringList('workout_records')!
+        .map((record) => jsonDecode(record) as Map<String, dynamic>);
+    expect(
+      records.map((record) => record['exercise']),
+      containsAll(['기존 운동', '새 운동']),
+    );
   });
 
   testWidgets('그래프 표시 여부와 전체 운동 선택 체크박스를 제어한다', (WidgetTester tester) async {
