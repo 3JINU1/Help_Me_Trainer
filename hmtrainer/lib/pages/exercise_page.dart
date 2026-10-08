@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../exercise_catalog.dart';
 import '../models.dart';
+import '../weight_input_formatter.dart';
 import '../widgets/cardio_duration_picker.dart';
 
 class ExercisePage extends StatefulWidget {
@@ -549,9 +551,17 @@ class _ExercisePageState extends State<ExercisePage> {
   }) {
     return TextFormField(
       initialValue: value?.toString() ?? '',
-      keyboardType: const TextInputType.numberWithOptions(
-        decimal: true,
-      ),
+      keyboardType: TextInputType.number,
+      textInputAction: label == '반복'
+          ? TextInputAction.done
+          : TextInputAction.next,
+      inputFormatters: [
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(2),
+      ],
+      onFieldSubmitted: (_) {
+        if (label == '반복') FocusScope.of(context).unfocus();
+      },
       style: const TextStyle(color: Colors.black87),
       decoration: InputDecoration(
         labelText: label,
@@ -783,13 +793,20 @@ class _ExercisePageState extends State<ExercisePage> {
                                 Expanded(
                                   child: TextFormField(
                                     key: ValueKey(
-                                      'weight-${session.exercise}-${session.weight}',
+                                      'weight-${widget.selectedSplitTargetIndex}-$sessionIndex-${session.exercise}',
                                     ),
                                     initialValue:
                                         session.weight == null
                                         ? ''
                                         : formatWeight(session.weight!),
-                                    keyboardType: TextInputType.number,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    textInputAction: TextInputAction.next,
+                                    inputFormatters: [
+                                      WeightInputFormatter(),
+                                    ],
                                     style: const TextStyle(
                                       color: Colors.black87,
                                     ),

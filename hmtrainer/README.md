@@ -79,6 +79,13 @@ Help_Me_Trainer의 Flutter 앱입니다.
 - 실제 기능이 없는 자동 동기화 설정 제거
 - 세션 구성에서 별도 휴식 유형을 제거하고, 앱 정보와 빌드 안내 갱신
 
+## 0.6.0 업데이트
+
+- 루틴 편집 중 중량을 소수점 둘째 자리까지 입력하고, 키보드가 입력 중 닫히지 않도록 수정
+- 세트와 반복 입력을 정수 숫자 전용으로 제한
+- 키보드가 열린 동안에도 재생 버튼과 하단 메뉴바를 고정해 키보드가 하단 영역을 덮도록 변경
+- 편집 화면의 빈 곳을 탭해 키보드를 닫을 수 있도록 개선
+
 ### 실행
 
 ```bash
@@ -88,44 +95,51 @@ flutter run
 
 ## IPA 파일 만들기 및 설치
 
-### 1. iOS 릴리스 아카이브 생성
+아래 명령은 프로젝트 폴더에서 실행합니다. 현재 터미널 위치가 `/tmp/hmt-ipa`라면, 이 절차의 첫 `cd`부터 다시 실행하세요.
 
 ```bash
-cd hmtrainer
-flutter build ipa --no-codesign
+(
+  set -e
+  cd "/Users/joojinwoo/Documents/GitHub/Help_Me_Trainer/hmtrainer"
+  flutter pub get
+  flutter build ipa --no-codesign
+
+  APP_PATH="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
+  if [ ! -d "$APP_PATH" ]; then
+    echo "오류: Runner.app을 찾을 수 없습니다. iOS 아카이브 빌드가 완료됐는지 확인하세요."
+    exit 1
+  fi
+
+  STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hmt-ipa.XXXXXX")"
+  trap 'rm -rf "$STAGING_DIR"' EXIT
+  mkdir -p "$STAGING_DIR/Payload"
+  cp -R "$APP_PATH" "$STAGING_DIR/Payload/"
+  rm -f "$HOME/Desktop/HMT.ipa"
+  (cd "$STAGING_DIR" && zip -qr "$HOME/Desktop/HMT.ipa" Payload)
+
+  if [ ! -s "$HOME/Desktop/HMT.ipa" ]; then
+    echo "오류: IPA 파일을 만들지 못했습니다."
+    exit 1
+  fi
+  echo "완료: $HOME/Desktop/HMT.ipa"
+)
 ```
 
-코드 서명을 하지 않은 경우 `.ipa` 대신 다음 아카이브가 생성됩니다.
+`--no-codesign` 빌드는 서명되지 않은 `Runner.app`을 포함한 IPA를 생성합니다. 아이폰에 설치하려면 AltStore 또는 Apple 개발자 인증서로 별도 서명해야 합니다.
 
-```text
-build/ios/archive/Runner.xcarchive
-```
-
-### 2. IPA 패키지 만들기
-
-```bash
-rm -rf /tmp/hmt-ipa
-mkdir -p /tmp/hmt-ipa/Payload
-cp -R build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app \
-	/tmp/hmt-ipa/Payload/
-cd /tmp/hmt-ipa
-zip -qr ~/Desktop/HMT.ipa Payload
-```
-
-### 3. 아이폰에 설치
+### 아이폰에 설치
 
 1. `HMT.ipa`를 AirDrop으로 아이폰에 전송합니다.
 2. 파일 앱에서 IPA 파일을 선택하고 공유합니다.
 3. 공유 대상에서 AltStore를 선택합니다.
 4. AltStore에서 Apple ID로 서명 후 설치합니다.
 
-코드 서명 없이 생성한 IPA는 AltStore 또는 Apple 개발자 인증서로 서명해야 설치할 수 있습니다.
-
 ### 개발 상태
 
 - 앱 구조와 핵심 루틴 기능 구현 완료
 - 운동 기록 및 그래프 확인 기능 구현 완료
 - 운동 선택 및 캘린더 UX 개선 완료
+- 루틴 입력에서 중량 소수 입력 및 세트·반복 정수 입력 지원
 - `data/exercises.json`에서 운동 정보를 불러오고 `data/images/`와 연결
 - 운동 부위와 기구별 선택 필터 및 검색 지원
 - 휴식 타이머의 초기 알림과 추가 알림 시점을 설정하고 단계별 소리·진동 알림 제공
@@ -135,5 +149,5 @@ zip -qr ~/Desktop/HMT.ipa Payload
 
 ## 버전 정보
 
-- 현재 버전: 0.5.0
-- 상태: 운동 데이터셋, 운동별 증량, 맞춤형 휴식 알림을 지원하는 MVP 단계
+- 현재 버전: 0.6.0
+- 상태: 운동 데이터셋, 운동별 증량, 맞춤형 휴식 알림 및 개선된 루틴 입력을 지원하는 MVP 단계

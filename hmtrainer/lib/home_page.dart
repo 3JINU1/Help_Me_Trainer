@@ -1783,6 +1783,7 @@ class _MyHomePageState extends State<MyHomePage> {
       value: statusOverlayStyle,
       child: Scaffold(
         backgroundColor: _isWorkoutMode ? Colors.white : Colors.red.shade900,
+        resizeToAvoidBottomInset: false,
         appBar: _isWorkoutMode
             ? null
             : AppBar(
@@ -1791,44 +1792,158 @@ class _MyHomePageState extends State<MyHomePage> {
                 backgroundColor: Colors.red.shade800,
                 elevation: 0,
               ),
-        body: SafeArea(
-          child: _isWorkoutMode
-              ? Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-                  child: todayRoutine == null
-                      ? const Text(
-                          '오늘 설정된 루틴이 없습니다.',
-                          style: TextStyle(color: Colors.black54, fontSize: 16),
-                        )
-                      : SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                '오늘 운동',
-                                style: TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w700,
+        body: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+          child: SafeArea(
+            child: _isWorkoutMode
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                    child: todayRoutine == null
+                        ? const Text(
+                            '오늘 설정된 루틴이 없습니다.',
+                            style: TextStyle(
+                              color: Colors.black54,
+                              fontSize: 16,
+                            ),
+                          )
+                        : SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '오늘 운동',
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 20),
-                              ...todayRoutine.exercises.asMap().entries.map((
-                                entry,
-                              ) {
-                                final exerciseIndex = entry.key;
-                                final exercise = entry.value;
-                                final isExerciseLocked = !_isExerciseUnlocked(
-                                  exercise.name,
-                                );
+                                const SizedBox(height: 20),
+                                ...todayRoutine.exercises.asMap().entries.map((
+                                  entry,
+                                ) {
+                                  final exerciseIndex = entry.key;
+                                  final exercise = entry.value;
+                                  final isExerciseLocked = !_isExerciseUnlocked(
+                                    exercise.name,
+                                  );
 
-                                if (exercise.type == '유산소') {
-                                  final goalSeconds = exercise.cardioSeconds;
-                                  final remainingSeconds =
-                                      _cardioRemainingSeconds[exercise.name] ??
-                                      goalSeconds;
-                                  final isRunning =
-                                      _cardioRunning[exercise.name] ?? false;
+                                  if (exercise.type == '유산소') {
+                                    final goalSeconds = exercise.cardioSeconds;
+                                    final remainingSeconds =
+                                        _cardioRemainingSeconds[exercise
+                                            .name] ??
+                                        goalSeconds;
+                                    final isRunning =
+                                        _cardioRunning[exercise.name] ?? false;
+
+                                    return Opacity(
+                                      opacity: isExerciseLocked ? 0.45 : 1.0,
+                                      child: Container(
+                                        width: double.infinity,
+                                        margin: const EdgeInsets.only(
+                                          bottom: 18,
+                                        ),
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.grey.shade200,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              exercise.name,
+                                              style: const TextStyle(
+                                                color: Colors.black,
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              '목표시간: ${_formatDuration(goalSeconds)}',
+                                              style: const TextStyle(
+                                                color: Colors.black87,
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Text(
+                                              '남은시간: ${_formatDuration(remainingSeconds)}',
+                                              style: const TextStyle(
+                                                color: Colors.red,
+                                                fontSize: 20,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: ElevatedButton(
+                                                    onPressed: isExerciseLocked
+                                                        ? null
+                                                        : () =>
+                                                              _startCardioTimer(
+                                                                exercise.name,
+                                                              ),
+                                                    style:
+                                                        ElevatedButton.styleFrom(
+                                                          backgroundColor:
+                                                              Colors
+                                                                  .red
+                                                                  .shade600,
+                                                          foregroundColor:
+                                                              Colors.white,
+                                                        ),
+                                                    child: const Text('start'),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: ElevatedButton(
+                                                    onPressed: isExerciseLocked
+                                                        ? null
+                                                        : () =>
+                                                              _pauseCardioTimer(
+                                                                exercise.name,
+                                                              ),
+                                                    style:
+                                                        ElevatedButton.styleFrom(
+                                                          backgroundColor:
+                                                              Colors
+                                                                  .grey
+                                                                  .shade200,
+                                                          foregroundColor:
+                                                              Colors.black87,
+                                                        ),
+                                                    child: const Text('rest'),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  final progress =
+                                      _exerciseSetProgress[exercise.name] ??
+                                      List<int>.filled(
+                                        exercise.sets,
+                                        exercise.reps,
+                                        growable: false,
+                                      );
 
                                   return Opacity(
                                     opacity: isExerciseLocked ? 0.45 : 1.0,
@@ -1847,331 +1962,248 @@ class _MyHomePageState extends State<MyHomePage> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Text(
-                                            exercise.name,
-                                            style: const TextStyle(
-                                              color: Colors.black,
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-                                          Text(
-                                            '목표시간: ${_formatDuration(goalSeconds)}',
-                                            style: const TextStyle(
-                                              color: Colors.black87,
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 10),
-                                          Text(
-                                            '남은시간: ${_formatDuration(remainingSeconds)}',
-                                            style: const TextStyle(
-                                              color: Colors.red,
-                                              fontSize: 20,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
                                           Row(
                                             children: [
                                               Expanded(
-                                                child: ElevatedButton(
-                                                  onPressed: isExerciseLocked
-                                                      ? null
-                                                      : () => _startCardioTimer(
-                                                          exercise.name,
-                                                        ),
-                                                  style:
-                                                      ElevatedButton.styleFrom(
-                                                        backgroundColor:
-                                                            Colors.red.shade600,
-                                                        foregroundColor:
-                                                            Colors.white,
-                                                      ),
-                                                  child: const Text('start'),
+                                                child: Text(
+                                                  exercise.name,
+                                                  style: const TextStyle(
+                                                    color: Colors.black,
+                                                    fontSize: 18,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
                                                 ),
                                               ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: ElevatedButton(
-                                                  onPressed: isExerciseLocked
-                                                      ? null
-                                                      : () => _pauseCardioTimer(
-                                                          exercise.name,
-                                                        ),
-                                                  style:
-                                                      ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors
-                                                            .grey
-                                                            .shade200,
-                                                        foregroundColor:
-                                                            Colors.black87,
-                                                      ),
-                                                  child: const Text('rest'),
+                                              Text(
+                                                '${formatWeight(_workoutWeights[exercise.name] ?? exercise.weight.toDouble())}kg',
+                                                style: const TextStyle(
+                                                  color: Colors.black87,
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
                                                 ),
                                               ),
                                             ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          SizedBox(
+                                            height: 38,
+                                            child: ListView.separated(
+                                              scrollDirection: Axis.horizontal,
+                                              itemCount: exercise.sets,
+                                              separatorBuilder: (_, __) =>
+                                                  const SizedBox(width: 8),
+                                              itemBuilder: (context, index) {
+                                                final value = progress[index];
+                                                final isEmpty = value == null;
+                                                final isBlocked =
+                                                    isExerciseLocked ||
+                                                    (index > 0 &&
+                                                        !_isSetFinalized(
+                                                          exercise.name,
+                                                          index - 1,
+                                                        ));
+                                                final isFinalized =
+                                                    _isSetFinalized(
+                                                      exercise.name,
+                                                      index,
+                                                    );
+
+                                                return GestureDetector(
+                                                  onTap: isBlocked
+                                                      ? null
+                                                      : () => _recordSetValue(
+                                                          exercise.name,
+                                                          index,
+                                                        ),
+                                                  onLongPress: isExerciseLocked
+                                                      ? null
+                                                      : () => _resetSetValue(
+                                                          exercise.name,
+                                                          index,
+                                                        ),
+                                                  child: AnimatedContainer(
+                                                    duration: const Duration(
+                                                      milliseconds: 180,
+                                                    ),
+                                                    width: 42,
+                                                    height: 42,
+                                                    decoration: BoxDecoration(
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(
+                                                        color: isBlocked
+                                                            ? Colors
+                                                                  .grey
+                                                                  .shade300
+                                                            : (isEmpty
+                                                                  ? Colors
+                                                                        .black54
+                                                                  : (isFinalized
+                                                                        ? Colors
+                                                                              .red
+                                                                        : Colors
+                                                                              .black54)),
+                                                        width: 1.5,
+                                                      ),
+                                                      color: isBlocked
+                                                          ? Colors.grey.shade100
+                                                          : (isFinalized
+                                                                ? Colors.red
+                                                                : Colors.white),
+                                                    ),
+                                                    child: isEmpty
+                                                        ? const SizedBox()
+                                                        : Center(
+                                                            child: Text(
+                                                              value.toString(),
+                                                              style: TextStyle(
+                                                                color:
+                                                                    isFinalized
+                                                                    ? Colors
+                                                                          .white
+                                                                    : Colors
+                                                                          .black87,
+                                                                fontSize: 13,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
                                           ),
                                         ],
                                       ),
                                     ),
                                   );
-                                }
+                                }).toList(),
 
-                                final progress =
-                                    _exerciseSetProgress[exercise.name] ??
-                                    List<int>.filled(
-                                      exercise.sets,
-                                      exercise.reps,
-                                      growable: false,
-                                    );
-
-                                return Opacity(
-                                  opacity: isExerciseLocked ? 0.45 : 1.0,
-                                  child: Container(
-                                    width: double.infinity,
-                                    margin: const EdgeInsets.only(bottom: 18),
-                                    padding: const EdgeInsets.all(14),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: Colors.grey.shade200,
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: _confirmFinishWorkout,
+                                    icon: const Icon(
+                                      Icons.check_circle_outline,
+                                    ),
+                                    label: const Text('운동 종료'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red.shade700,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
                                       ),
                                     ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                  ),
+                                ),
+                                if (_isResting) ...[
+                                  const SizedBox(height: 16),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                      horizontal: 16,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: restAlertColor,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: restAlertBorderColor,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                exercise.name,
-                                                style: const TextStyle(
-                                                  color: Colors.black,
-                                                  fontSize: 18,
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                '휴식',
+                                                style: TextStyle(
+                                                  color: Colors.black87,
+                                                  fontSize: 16,
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
-                                            ),
-                                            Text(
-                                              '${formatWeight(_workoutWeights[exercise.name] ?? exercise.weight.toDouble())}kg',
-                                              style: const TextStyle(
-                                                color: Colors.black87,
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 12),
-                                        SizedBox(
-                                          height: 38,
-                                          child: ListView.separated(
-                                            scrollDirection: Axis.horizontal,
-                                            itemCount: exercise.sets,
-                                            separatorBuilder: (_, __) =>
-                                                const SizedBox(width: 8),
-                                            itemBuilder: (context, index) {
-                                              final value = progress[index];
-                                              final isEmpty = value == null;
-                                              final isBlocked =
-                                                  isExerciseLocked ||
-                                                  (index > 0 &&
-                                                      !_isSetFinalized(
-                                                        exercise.name,
-                                                        index - 1,
-                                                      ));
-                                              final isFinalized =
-                                                  _isSetFinalized(
-                                                    exercise.name,
-                                                    index,
-                                                  );
-
-                                              return GestureDetector(
-                                                onTap: isBlocked
-                                                    ? null
-                                                    : () => _recordSetValue(
-                                                        exercise.name,
-                                                        index,
-                                                      ),
-                                                onLongPress: isExerciseLocked
-                                                    ? null
-                                                    : () => _resetSetValue(
-                                                        exercise.name,
-                                                        index,
-                                                      ),
-                                                child: AnimatedContainer(
-                                                  duration: const Duration(
-                                                    milliseconds: 180,
+                                              if (_restAlertStage > 0)
+                                                Text(
+                                                  '알림 $_restAlertStage / $_restAlertThresholdCount',
+                                                  style: const TextStyle(
+                                                    color: Colors.black54,
+                                                    fontSize: 12,
                                                   ),
-                                                  width: 42,
-                                                  height: 42,
-                                                  decoration: BoxDecoration(
-                                                    shape: BoxShape.circle,
-                                                    border: Border.all(
-                                                      color: isBlocked
-                                                          ? Colors.grey.shade300
-                                                          : (isEmpty
-                                                                ? Colors.black54
-                                                                : (isFinalized
-                                                                      ? Colors
-                                                                            .red
-                                                                      : Colors
-                                                                            .black54)),
-                                                      width: 1.5,
-                                                    ),
-                                                    color: isBlocked
-                                                        ? Colors.grey.shade100
-                                                        : (isFinalized
-                                                              ? Colors.red
-                                                              : Colors.white),
-                                                  ),
-                                                  child: isEmpty
-                                                      ? const SizedBox()
-                                                      : Center(
-                                                          child: Text(
-                                                            value.toString(),
-                                                            style: TextStyle(
-                                                              color: isFinalized
-                                                                  ? Colors.white
-                                                                  : Colors
-                                                                        .black87,
-                                                              fontSize: 13,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                            ),
-                                                          ),
-                                                        ),
                                                 ),
-                                              );
-                                            },
+                                            ],
                                           ),
+                                        ),
+                                        Text(
+                                          _formatDuration(_restElapsedSeconds),
+                                          style: const TextStyle(
+                                            color: Colors.red,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        IconButton(
+                                          onPressed: () =>
+                                              setState(_stopRestTimer),
+                                          padding: EdgeInsets.zero,
+                                          constraints:
+                                              const BoxConstraints.tightFor(
+                                                width: 32,
+                                                height: 32,
+                                              ),
+                                          splashColor: Colors.transparent,
+                                          highlightColor: Colors.transparent,
+                                          hoverColor: Colors.transparent,
+                                          icon: const Icon(
+                                            Icons.close,
+                                            size: 20,
+                                            color: Colors.black54,
+                                          ),
+                                          tooltip: '휴식 종료',
                                         ),
                                       ],
                                     ),
                                   ),
-                                );
-                              }).toList(),
-
-                              const SizedBox(height: 8),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton.icon(
-                                  onPressed: _confirmFinishWorkout,
-                                  icon: const Icon(Icons.check_circle_outline),
-                                  label: const Text('운동 종료'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red.shade700,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (_isResting) ...[
-                                const SizedBox(height: 16),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                    horizontal: 16,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: restAlertColor,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: restAlertBorderColor,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Text(
-                                              '휴식',
-                                              style: TextStyle(
-                                                color: Colors.black87,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            if (_restAlertStage > 0)
-                                              Text(
-                                                '알림 $_restAlertStage / $_restAlertThresholdCount',
-                                                style: const TextStyle(
-                                                  color: Colors.black54,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                      Text(
-                                        _formatDuration(_restElapsedSeconds),
-                                        style: const TextStyle(
-                                          color: Colors.red,
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      IconButton(
-                                        onPressed: () =>
-                                            setState(_stopRestTimer),
-                                        padding: EdgeInsets.zero,
-                                        constraints:
-                                            const BoxConstraints.tightFor(
-                                              width: 32,
-                                              height: 32,
-                                            ),
-                                        splashColor: Colors.transparent,
-                                        highlightColor: Colors.transparent,
-                                        hoverColor: Colors.transparent,
-                                        icon: const Icon(
-                                          Icons.close,
-                                          size: 20,
-                                          color: Colors.black54,
-                                        ),
-                                        tooltip: '휴식 종료',
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
+                  )
+                : Padding(
+                    padding: const EdgeInsets.only(
+                      left: 16,
+                      right: 16,
+                      top: 16,
+                    ),
+                    child: DragBoundary(
+                      child: Listener(
+                        behavior: HitTestBehavior.translucent,
+                        onPointerMove: _updateSessionDragPointer,
+                        child: SingleChildScrollView(
+                          key: _selectedIndex == 0
+                              ? _routineEditorViewportKey
+                              : null,
+                          controller: _selectedIndex == 0
+                              ? _routineEditorScrollController
+                              : null,
+                          child: pages[_selectedIndex],
                         ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.only(left: 16, right: 16, top: 16),
-                  child: DragBoundary(
-                    child: Listener(
-                      behavior: HitTestBehavior.translucent,
-                      onPointerMove: _updateSessionDragPointer,
-                      child: SingleChildScrollView(
-                        key: _selectedIndex == 0
-                            ? _routineEditorViewportKey
-                            : null,
-                        controller: _selectedIndex == 0
-                            ? _routineEditorScrollController
-                            : null,
-                        child: pages[_selectedIndex],
                       ),
                     ),
                   ),
-                ),
+          ),
         ),
-        floatingActionButton: Padding(padding: EdgeInsets.zero, child: playFab),
+        floatingActionButton: Padding(
+          padding: EdgeInsets.zero,
+          child: playFab,
+        ),
         floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
         bottomNavigationBar: bottomBar,
       ),
