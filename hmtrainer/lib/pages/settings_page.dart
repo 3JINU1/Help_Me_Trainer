@@ -35,7 +35,8 @@ class SettingsPage extends StatelessWidget {
     var previousSeconds = initialSeconds;
     final adjustedAlerts = <int>[];
     for (final alertSeconds in restTimerSettings.alertSeconds) {
-      final adjustedSeconds = alertSeconds <
+      final adjustedSeconds =
+          alertSeconds <
               previousSeconds + RestTimerSettings.minimumAlertGapSeconds
           ? previousSeconds + RestTimerSettings.minimumAlertGapSeconds
           : alertSeconds;
@@ -65,9 +66,7 @@ class SettingsPage extends StatelessWidget {
     alerts[index] = (alerts[index] + delta)
         .clamp(minimumSeconds, maximumSeconds)
         .toInt();
-    onChangeRestTimerSettings(
-      restTimerSettings.copyWith(alertSeconds: alerts),
-    );
+    onChangeRestTimerSettings(restTimerSettings.copyWith(alertSeconds: alerts));
   }
 
   void _addAlert() {
@@ -87,9 +86,7 @@ class SettingsPage extends StatelessWidget {
   void _removeAlert(int index) {
     final alerts = List<int>.of(restTimerSettings.alertSeconds)
       ..removeAt(index);
-    onChangeRestTimerSettings(
-      restTimerSettings.copyWith(alertSeconds: alerts),
-    );
+    onChangeRestTimerSettings(restTimerSettings.copyWith(alertSeconds: alerts));
   }
 
   @override
@@ -169,8 +166,8 @@ class SettingsPage extends StatelessWidget {
                 final previousSeconds = index == 0
                     ? restTimerSettings.initialSeconds
                     : restTimerSettings.alertSeconds[index - 1];
-                final maximumSeconds = index + 1 <
-                        restTimerSettings.alertSeconds.length
+                final maximumSeconds =
+                    index + 1 < restTimerSettings.alertSeconds.length
                     ? restTimerSettings.alertSeconds[index + 1] -
                           RestTimerSettings.minimumAlertGapSeconds
                     : RestTimerSettings.maximumAlertSeconds;
@@ -210,9 +207,11 @@ class SettingsPage extends StatelessWidget {
                               key: Key('decrease_rest_alert_$index'),
                               tooltip: '알림 시간 줄이기',
                               icon: const Icon(Icons.remove, color: Colors.red),
-                              onPressed: seconds >
+                              onPressed:
+                                  seconds >
                                       previousSeconds +
-                                          RestTimerSettings.minimumAlertGapSeconds
+                                          RestTimerSettings
+                                              .minimumAlertGapSeconds
                                   ? () => _changeAlertSeconds(index, -10)
                                   : null,
                             ),
@@ -271,7 +270,7 @@ class SettingsPage extends StatelessWidget {
               ),
             ),
             subtitle: Text(
-              'HMT v0.9.0',
+              'HMT v0.10.0',
               style: TextStyle(color: Colors.black54),
             ),
           ),

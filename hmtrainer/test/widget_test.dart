@@ -8,6 +8,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -61,7 +62,7 @@ void main() {
     final existingSet = find.byKey(const Key('today_set_기존 운동_0'));
     await tester.tap(existingSet);
     await tester.pumpAndSettle();
-    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump(const Duration(milliseconds: 1600));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.settings));
@@ -93,7 +94,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump(const Duration(milliseconds: 1600));
     await tester.pumpAndSettle();
     final setCircle = tester.widget<AnimatedContainer>(
       find.descendant(of: setFinder, matching: find.byType(AnimatedContainer)),
@@ -166,7 +167,7 @@ void main() {
       await tester.pump();
       await tester.tap(set);
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 1300));
+      await tester.pump(const Duration(milliseconds: 1600));
       await tester.pumpAndSettle();
     }
 
@@ -196,6 +197,163 @@ void main() {
       contains(DateTime.now().toIso8601String().substring(0, 10)),
     );
   });
+
+  testWidgets(
+    'Live Activity는 마지막으로 진행한 운동을 표시한 뒤 루틴 첫 운동으로 돌아간다',
+    (WidgetTester tester) async {
+      const routineId = 'live-activity-exercise-priority';
+      const channel = MethodChannel('com.example.hmtrainer/workout_activity');
+      final syncedExercises = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'sync') {
+              syncedExercises.add(
+                (call.arguments as Map<Object?, Object?>)['exerciseName']
+                    as String,
+              );
+              return true;
+            }
+            if (call.method == 'startRestTimer' ||
+                call.method == 'stopRestTimer') {
+              return true;
+            }
+            return null;
+          });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+
+      final weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+      final todayWeekday = weekdays[DateTime.now().weekday - 1];
+      SharedPreferences.setMockInitialValues({});
+      final workoutProvider = WorkoutProvider();
+      await workoutProvider.ready;
+      await workoutProvider.addRoutine(
+        WorkoutRoutine(
+          id: routineId,
+          name: 'Live Activity 우선순위 테스트',
+          exercises: [
+            RoutineExercise(name: '루틴 첫 운동', sets: 1, reps: 1, weight: 20),
+            RoutineExercise(name: '진행 운동', sets: 2, reps: 1, weight: 10),
+          ],
+        ),
+      );
+      await workoutProvider.assignRoutineToWeekday(todayWeekday, routineId);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MyHomePage(title: 'HMT', workoutProvider: workoutProvider),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pumpAndSettle();
+
+      final firstProgressSet = find.byKey(const Key('today_set_진행 운동_0'));
+      await tester.ensureVisible(firstProgressSet);
+      await tester.tap(firstProgressSet);
+      await tester.pump(const Duration(milliseconds: 1600));
+      await tester.pumpAndSettle();
+      expect(syncedExercises.last, '진행 운동');
+
+      final secondProgressSet = find.byKey(const Key('today_set_진행 운동_1'));
+      await tester.ensureVisible(secondProgressSet);
+      await tester.tap(secondProgressSet);
+      await tester.pump(const Duration(milliseconds: 1600));
+      await tester.pumpAndSettle();
+      expect(syncedExercises.last, '루틴 첫 운동');
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'Live Activity 버튼은 앱과 같은 방식으로 기록하고 휴식 중 탭하면 다음 세트를 기록 상태로 전환한다',
+    (WidgetTester tester) async {
+      const routineId = 'live-activity-record-button';
+      const channel = MethodChannel('com.example.hmtrainer/workout_activity');
+      Map<Object?, Object?> lastState = {};
+      var pendingRequests = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'sync') {
+              lastState = Map<Object?, Object?>.from(call.arguments as Map);
+              return true;
+            }
+            if (call.method == 'consumeRecordRequest') {
+              if (pendingRequests == 0) return null;
+              pendingRequests--;
+              return {
+                'exerciseName': lastState['exerciseName'],
+                'setIndex': (lastState['currentSet'] as int) - 1,
+              };
+            }
+            return true;
+          });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+
+      final weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+      final todayWeekday = weekdays[DateTime.now().weekday - 1];
+      SharedPreferences.setMockInitialValues({});
+      final workoutProvider = WorkoutProvider();
+      await workoutProvider.ready;
+      await workoutProvider.addRoutine(
+        WorkoutRoutine(
+          id: routineId,
+          name: 'Live Activity 기록 테스트',
+          exercises: [
+            RoutineExercise(name: '버튼 운동', sets: 2, reps: 5, weight: 20),
+          ],
+        ),
+      );
+      await workoutProvider.assignRoutineToWeekday(todayWeekday, routineId);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MyHomePage(title: 'HMT', workoutProvider: workoutProvider),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pumpAndSettle();
+
+      Future<void> tapIsland() async {
+        pendingRequests = 1;
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        await tester.pump();
+      }
+
+      await tapIsland();
+      expect(lastState['currentReps'], 5);
+      await tapIsland();
+      expect(lastState['currentReps'], 4);
+
+      await tester.pump(const Duration(milliseconds: 1600));
+      await tester.pump();
+      expect(lastState['currentSet'], 2);
+      expect(lastState['currentReps'], isNull);
+      expect(lastState['showRestInButton'], true);
+
+      await tapIsland();
+      expect(lastState['showRestInButton'], false);
+      expect(lastState['currentReps'], isNull);
+
+      await tapIsland();
+      expect(lastState['currentReps'], 5);
+      await tester.pump(const Duration(milliseconds: 1600));
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
   testWidgets('오늘 운동 중량 수정은 루틴에 저장되고 목표 달성 시 수정 중량에서 증량한다', (
     WidgetTester tester,
   ) async {
@@ -242,7 +400,7 @@ void main() {
     final set = find.byKey(const Key('today_set_중량 테스트 운동_0'));
     await tester.tap(set);
     await tester.pumpAndSettle();
-    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump(const Duration(milliseconds: 1600));
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('운동 종료'));

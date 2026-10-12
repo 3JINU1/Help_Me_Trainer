@@ -142,13 +142,13 @@ class _CalendarPageState extends State<CalendarPage> {
                 return Row(
                   children: weekDays.map((day) {
                     final isCurrentMonth =
-                      day.month == widget.visibleMonth.month;
+                        day.month == widget.visibleMonth.month;
                     final isSelected =
                         day.year == widget.selectedDate.year &&
                         day.month == widget.selectedDate.month &&
                         day.day == widget.selectedDate.day;
-                      final hasPlan = widget.hasRoutineForDate(day);
-                      final isCompleted = widget.isCompletedForDate(day);
+                    final hasPlan = widget.hasRoutineForDate(day);
+                    final isCompleted = widget.isCompletedForDate(day);
                     return Expanded(
                       child: GestureDetector(
                         onTap: () => widget.onSelectDate(day),
@@ -253,7 +253,10 @@ class _CalendarPageState extends State<CalendarPage> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             if (widget.isCompleted)
-                              const Icon(Icons.check_circle, color: Colors.green),
+                              const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              ),
                             if (widget.isCompleted)
                               IconButton(
                                 tooltip: '완료 초기화',
@@ -288,7 +291,9 @@ class _CalendarPageState extends State<CalendarPage> {
                                     padding: const EdgeInsets.only(bottom: 6),
                                     child: Text(
                                       '• $plan',
-                                      style: const TextStyle(color: Colors.black87),
+                                      style: const TextStyle(
+                                        color: Colors.black87,
+                                      ),
                                     ),
                                   ),
                                 )

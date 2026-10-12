@@ -29,12 +29,20 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     'com.example.hmtrainer/workout_activity',
   );
 
+  bool _workoutActivityChannelUnavailable = false;
+  bool _workoutActivityChannelWarningShown = false;
+
   int _selectedIndex = 0;
   bool _isWorkoutMode = false;
   bool _isPlaying = false;
   bool _isResting = false;
   int _restElapsedSeconds = 0;
   int _restAlertStage = 0;
+  DateTime? _restStartedAt;
+  bool _liveActivityRecordArmed = false;
+  Timer? _liveActivityPollTimer;
+  Timer? _liveActivityResyncTimer;
+  bool _consumingLiveActivityRequest = false;
   Timer? _restTimer;
   Timer? _restAlarmTimer;
   int _restAlarmTicksRemaining = 0;
@@ -94,18 +102,56 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _workoutActivityChannel.setMethodCallHandler((call) async {
+      if (call.method == 'recordTap') {
+        final args = call.arguments;
+        if (args is Map &&
+            args['exerciseName'] is String &&
+            args['setIndex'] is int) {
+          if (args['endRest'] == true) {
+            setState(_stopRestTimer);
+            return null;
+          }
+          _recordSetFromLiveActivity(
+            args['exerciseName'] as String,
+            args['setIndex'] as int,
+          );
+        }
+      }
+      return null;
+    });
     _workoutProvider = widget.workoutProvider ?? WorkoutProvider();
     _loadExerciseCatalog();
     _loadWorkoutData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_consumeLiveActivityRecordRequest());
     });
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      _liveActivityPollTimer = Timer.periodic(
+        const Duration(milliseconds: 400),
+        (_) {
+          if (_isWorkoutMode) unawaited(_consumeLiveActivityRecordRequest());
+        },
+      );
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      if (_isResting) {
+        _refreshRestTimerState();
+        _startRestTimer(reset: false);
+        _syncRestTimerOverlay();
+      }
       unawaited(_consumeLiveActivityRecordRequest());
+      unawaited(_syncWorkoutLiveActivity());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _restTimer?.cancel();
+      _restTimer = null;
+      _stopRestAlarm();
     }
   }
 
@@ -190,7 +236,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   void _onNavTap(int index) {
     if (_isWorkoutMode) {
-      _stopRestTimer(reset: false);
       _cardioTimers.forEach((_, timer) => timer?.cancel());
     }
 
@@ -202,6 +247,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _cardioRunning.updateAll((_, __) => false);
       }
     });
+    _syncRestTimerOverlay();
     unawaited(_syncWorkoutLiveActivity());
   }
 
@@ -229,29 +275,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Future<void> _syncWorkoutLiveActivity() async {
     if (defaultTargetPlatform != TargetPlatform.iOS) return;
     if (!_isWorkoutMode) {
-      await _workoutActivityChannel.invokeMethod<void>('end');
+      await _invokeWorkoutActivityMethod<void>('end');
       return;
     }
 
     final routine = _workoutProvider.getRoutineForDate(DateTime.now());
     if (routine == null || routine.exercises.isEmpty) {
-      await _workoutActivityChannel.invokeMethod<void>('end');
+      await _invokeWorkoutActivityMethod<void>('end');
       return;
     }
-    final strengthExercises = routine.exercises
-        .where((exercise) => exercise.type != '유산소')
-        .toList();
-    final candidates = strengthExercises.isEmpty
-        ? routine.exercises
-        : strengthExercises;
-    final exercise = candidates.firstWhere(
-      (item) =>
-          item.name == _activeWorkoutExerciseName &&
-          !_isExerciseCompleted(item.name),
-      orElse: () => candidates.firstWhere(
-        (item) => !_isExerciseCompleted(item.name),
-        orElse: () => candidates.first,
-      ),
+    final exercise = routine.exercises.firstWhere(
+      (item) => item.name == _activeWorkoutExerciseName,
+      orElse: () => routine.exercises.first,
     );
     final finalized = _finalizedSetIndexes[exercise.name] ?? const <int>{};
     final setIndex = exercise.sets == 0
@@ -271,28 +306,104 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         !finalized.contains(setIndex) &&
         previousSetsDone;
     final restStartedAtEpochMs = _isResting
-        ? DateTime.now()
-              .subtract(Duration(seconds: _restElapsedSeconds))
-              .millisecondsSinceEpoch
-              .toDouble()
+        ? _restStartedAt?.millisecondsSinceEpoch.toDouble()
         : null;
+    final setProgress = _exerciseSetProgress[exercise.name];
+    final currentReps =
+        setProgress != null && setIndex >= 0 && setIndex < setProgress.length
+        ? setProgress[setIndex]
+        : null;
+    final showRestInButton =
+        canRecord &&
+        _isResting &&
+        !_liveActivityRecordArmed &&
+        currentReps == null;
 
-    await _workoutActivityChannel.invokeMethod<bool>('sync', {
+    await _invokeWorkoutActivityMethod<bool>('sync', {
       'exerciseName': exercise.name,
       'currentSet': setIndex + 1,
       'totalSets': exercise.sets > 0 ? exercise.sets : 1,
       'canRecord': canRecord,
+      'currentReps': currentReps,
+      'targetReps': exercise.reps,
+      'restMaxSeconds': _activeRestTimerSettings.thresholds.last,
+      'weightLabel': exercise.weight == exercise.weight.roundToDouble()
+          ? '${exercise.weight.toInt()}kg'
+          : '${exercise.weight}kg',
+      'showRestInButton': showRestInButton,
       'restStartedAtEpochMs': restStartedAtEpochMs,
     });
   }
 
+  Future<void> _scheduleRestNotifications() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS || _restStartedAt == null) {
+      return;
+    }
+    final thresholds = <int>[
+      _activeRestTimerSettings.initialSeconds,
+      ..._activeRestTimerSettings.alertSeconds,
+    ];
+    final enabled = await _invokeWorkoutActivityMethod<bool>('startRestTimer', {
+      'startedAtEpochMs': _restStartedAt!.millisecondsSinceEpoch.toDouble(),
+      'alertSeconds': thresholds,
+    });
+    if (enabled == false && mounted) {
+      _showTopMessage('휴식 타이머 백그라운드 알림을 받으려면 알림 권한을 허용해 주세요.');
+    }
+  }
+
+  Future<void> _cancelRestNotifications() async {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await _invokeWorkoutActivityMethod<bool>('stopRestTimer');
+    }
+  }
+
+  Future<T?> _invokeWorkoutActivityMethod<T>(
+    String method, [
+    Object? arguments,
+  ]) async {
+    if (_workoutActivityChannelUnavailable) return null;
+
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await _workoutActivityChannel.invokeMethod<T>(method, arguments);
+      } on MissingPluginException {
+        if (attempt == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
+        _workoutActivityChannelUnavailable = true;
+        if (mounted && !_workoutActivityChannelWarningShown) {
+          _workoutActivityChannelWarningShown = true;
+          _showTopMessage('Live Activity 연결이 없습니다. 앱을 최신 버전으로 다시 설치해 주세요.');
+        }
+      }
+    }
+    return null;
+  }
+
   Future<void> _consumeLiveActivityRecordRequest() async {
-    if (defaultTargetPlatform != TargetPlatform.iOS) return;
-    final request = await _workoutActivityChannel
-        .invokeMapMethod<String, dynamic>('consumeRecordRequest');
-    if (request == null) return;
-    final exerciseName = request['exerciseName'];
-    final setIndex = request['setIndex'];
+    if (defaultTargetPlatform != TargetPlatform.iOS ||
+        _consumingLiveActivityRequest) {
+      return;
+    }
+    _consumingLiveActivityRequest = true;
+    final Object? result;
+    try {
+      result = await _invokeWorkoutActivityMethod<Object?>(
+        'consumeRecordRequest',
+      );
+    } finally {
+      _consumingLiveActivityRequest = false;
+    }
+    if (!mounted) return;
+    if (result is! Map) return;
+    if (result['endRest'] == true) {
+      setState(_stopRestTimer);
+      return;
+    }
+    final exerciseName = result['exerciseName'];
+    final setIndex = result['setIndex'];
     if (exerciseName is! String || setIndex is! int) {
       _showTopMessage('다이나믹 아일랜드에서 요청한 세트를 읽지 못했습니다.');
       return;
@@ -329,12 +440,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return;
     }
 
-    _setTouchTimers[exerciseName]?[setIndex]?.cancel();
-    progress[setIndex] ??= exercise.reps;
-    _finalizedSetIndexes.putIfAbsent(exerciseName, () => <int>{}).add(setIndex);
-    _activeWorkoutExerciseName = exerciseName;
-    _startRestTimer();
-    setState(() {});
+    if (_isResting && progress[setIndex] == null) {
+      _activeWorkoutExerciseName = exerciseName;
+      setState(_stopRestTimer);
+      return;
+    }
+
+    _recordSetValue(exerciseName, setIndex);
   }
 
   bool _canResumeWorkout(DateTime date) {
@@ -429,7 +541,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     if (_isPlaying) {
-      _stopRestTimer(reset: false);
       _cardioTimers.forEach((_, timer) => timer?.cancel());
       setState(() {
         _isPlaying = false;
@@ -470,23 +581,17 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _cardioTimers.clear();
     _cardioRemainingSeconds.clear();
     _cardioRunning.clear();
-    _activeWorkoutExerciseName = null;
-    if (routine != null) {
-      for (final exercise in routine.exercises) {
-        if (exercise.type != '유산소') {
-          _activeWorkoutExerciseName = exercise.name;
-          break;
-        }
-      }
-      _activeWorkoutExerciseName ??= routine.exercises.isEmpty
-          ? null
-          : routine.exercises.first.name;
-    }
+    _activeWorkoutExerciseName = routine == null || routine.exercises.isEmpty
+        ? null
+        : routine.exercises.first.name;
     _isResting = false;
+    _restStartedAt = null;
     _restElapsedSeconds = 0;
     _restAlertStage = 0;
     _restTimer?.cancel();
+    _restTimer = null;
     _stopRestAlarm();
+    unawaited(_cancelRestNotifications());
     _removeRestTimerOverlay();
     if (routine == null) return;
 
@@ -710,6 +815,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _setTouchTimers[exerciseName]?[setIndex]?.cancel();
     _finalizedSetIndexes[exerciseName]?.remove(setIndex);
     progress[setIndex] = null;
+    _activeWorkoutExerciseName = exerciseName;
     setState(() {});
     unawaited(_syncWorkoutLiveActivity());
   }
@@ -729,16 +835,23 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _setTouchTimers.putIfAbsent(exerciseName, () => {});
     _setTouchTimers[exerciseName]![setIndex]?.cancel();
 
-    final timer = Timer(const Duration(milliseconds: 1200), () {
+    final timer = Timer(const Duration(milliseconds: 1500), () {
       if (!mounted) return;
 
       _finalizedSetIndexes
           .putIfAbsent(exerciseName, () => <int>{})
           .add(setIndex);
-      _activeWorkoutExerciseName = exerciseName;
+      _focusWorkoutExerciseAfterSet(exerciseName);
       _startRestTimer();
       setState(() {});
       unawaited(_syncWorkoutLiveActivity());
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        _liveActivityResyncTimer?.cancel();
+        _liveActivityResyncTimer = Timer(
+          const Duration(milliseconds: 1800),
+          () => unawaited(_syncWorkoutLiveActivity()),
+        );
+      }
     });
 
     _setTouchTimers[exerciseName]![setIndex] = timer;
@@ -777,26 +890,28 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     unawaited(_syncWorkoutLiveActivity());
   }
 
+  void _focusWorkoutExerciseAfterSet(String exerciseName) {
+    _activeWorkoutExerciseName = _isExerciseCompleted(exerciseName)
+        ? null
+        : exerciseName;
+  }
+
   void _startRestTimer({bool reset = true}) {
-    _restTimer?.cancel();
-    _stopRestAlarm();
     _isResting = true;
     if (reset) {
+      _restTimer?.cancel();
+      _stopRestAlarm();
+      _restStartedAt = DateTime.now();
+      _liveActivityRecordArmed = false;
       _restElapsedSeconds = 0;
       _restAlertStage = 0;
+      unawaited(_scheduleRestNotifications());
+    } else {
+      _restStartedAt ??= DateTime.now();
     }
-    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _restTimer ??= Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
-      setState(() {
-        _restElapsedSeconds += 1;
-        final reachedStage = _activeRestTimerSettings.alertStageAt(
-          _restElapsedSeconds,
-        );
-        while (_restAlertStage < reachedStage) {
-          _restAlertStage++;
-          _playRestAlarm();
-        }
-      });
+      _refreshRestTimerState();
       _restTimerOverlayEntry?.markNeedsBuild();
       _messageOverlayEntry?.markNeedsBuild();
     });
@@ -805,16 +920,53 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   void _stopRestTimer({bool reset = true}) {
+    if (!reset) return;
     _restTimer?.cancel();
     _restTimer = null;
     _stopRestAlarm();
-    if (reset) {
+    _isResting = false;
+    _restStartedAt = null;
+    _restElapsedSeconds = 0;
+    _restAlertStage = 0;
+    _removeRestTimerOverlay();
+    _messageOverlayEntry?.markNeedsBuild();
+    unawaited(_cancelRestNotifications());
+    unawaited(_syncWorkoutLiveActivity());
+  }
+
+  void _refreshRestTimerState() {
+    final startedAt = _restStartedAt;
+    if (!_isResting || startedAt == null) return;
+    final elapsedSeconds = DateTime.now().difference(startedAt).inSeconds;
+    final reachedStage = _activeRestTimerSettings.alertStageAt(elapsedSeconds);
+    final maxSeconds = _activeRestTimerSettings.thresholds.last;
+    if (elapsedSeconds >= maxSeconds) {
+      if (reachedStage > _restAlertStage &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        _playRestAlarm();
+      }
+      _restTimer?.cancel();
+      _restTimer = null;
       _isResting = false;
+      _restStartedAt = null;
       _restElapsedSeconds = 0;
       _restAlertStage = 0;
       _removeRestTimerOverlay();
       _messageOverlayEntry?.markNeedsBuild();
+      unawaited(_cancelRestNotifications());
       unawaited(_syncWorkoutLiveActivity());
+      if (mounted) setState(() {});
+      return;
+    }
+    if (reachedStage > _restAlertStage) {
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        _playRestAlarm();
+      }
+      _restAlertStage = reachedStage;
+    }
+    if (_restElapsedSeconds != elapsedSeconds) {
+      _restElapsedSeconds = elapsedSeconds;
+      if (mounted) setState(() {});
     }
   }
 
@@ -1749,6 +1901,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       }
     });
     await _workoutProvider.setRestTimerSettings(settings);
+    if (_isResting) {
+      await _scheduleRestNotifications();
+    }
   }
 
   bool _isTodayWorkoutComplete() {
@@ -1919,6 +2074,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _liveActivityPollTimer?.cancel();
+    _liveActivityResyncTimer?.cancel();
     _restTimer?.cancel();
     for (final timer in _cardioTimers.values) {
       timer?.cancel();

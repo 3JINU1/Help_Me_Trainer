@@ -9,16 +9,11 @@ struct WorkoutLiveActivityWidget: Widget {
     ActivityConfiguration(for: WorkoutActivityAttributes.self) { context in
       VStack(alignment: .leading, spacing: 10) {
         HStack {
-          Label("운동 진행 중", systemImage: "figure.strengthtraining.traditional")
-            .font(.headline)
+          Image(systemName: "figure.strengthtraining.traditional")
           Spacer()
           setLabel(context.state)
         }
-        Text(context.state.exerciseName)
-          .font(.title3.weight(.semibold))
-          .lineLimit(1)
-        restLabel(context.state)
-        recordButton(context.state, sessionID: context.attributes.sessionID)
+        workoutRow(context.state, sessionID: context.attributes.sessionID)
       }
       .padding()
       .activityBackgroundTint(.black)
@@ -28,17 +23,13 @@ struct WorkoutLiveActivityWidget: Widget {
         DynamicIslandExpandedRegion(.leading) {
           Image(systemName: "figure.strengthtraining.traditional")
         }
-        DynamicIslandExpandedRegion(.center) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(context.state.exerciseName).lineLimit(1)
-            setLabel(context.state)
-          }
-        }
         DynamicIslandExpandedRegion(.trailing) {
-          restLabel(context.state)
+          setLabel(context.state)
+            .padding(.trailing, 10)
         }
         DynamicIslandExpandedRegion(.bottom) {
-          recordButton(context.state, sessionID: context.attributes.sessionID)
+          workoutRow(context.state, sessionID: context.attributes.sessionID)
+          .padding(.horizontal, 10)
         }
       } compactLeading: {
         Image(systemName: "figure.strengthtraining.traditional")
@@ -48,6 +39,28 @@ struct WorkoutLiveActivityWidget: Widget {
         Image(systemName: "figure.strengthtraining.traditional")
       }
       .keylineTint(.red)
+    }
+  }
+
+  private func workoutRow(
+    _ state: WorkoutActivityAttributes.ContentState,
+    sessionID: String
+  ) -> some View {
+    HStack(spacing: 12) {
+      RoundedRectangle(cornerRadius: 10)
+        .fill(Color.white.opacity(0.15))
+        .frame(width: 48, height: 48)
+        .overlay(Image(systemName: "dumbbell.fill").foregroundStyle(.white))
+      VStack(alignment: .leading, spacing: 2) {
+        Text(state.exerciseName)
+          .font(.headline)
+          .lineLimit(1)
+        Text(state.weightLabel)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      }
+      Spacer(minLength: 0)
+      recordButton(state, sessionID: sessionID)
     }
   }
 
@@ -63,10 +76,9 @@ struct WorkoutLiveActivityWidget: Widget {
             sessionID: sessionID
           )
         ) {
-          Label("현재 세트 기록", systemImage: "checkmark.circle.fill")
-            .font(.subheadline.weight(.semibold))
+          recordButtonLabel(state)
         }
-        .tint(.red)
+        .buttonStyle(.plain)
       } else {
         Text("세트 기록은 iOS 17 이상에서 지원")
           .font(.caption)
@@ -74,14 +86,50 @@ struct WorkoutLiveActivityWidget: Widget {
     }
   }
 
+  private func recordButtonLabel(
+    _ state: WorkoutActivityAttributes.ContentState
+  ) -> some View {
+    let resting = state.showRestInButton && state.restStartedAt != nil
+    let filled = resting || state.currentReps != nil
+    return ZStack {
+      Capsule()
+        .strokeBorder(Color.red, lineWidth: 2)
+        .background(Capsule().fill(filled ? Color.red : Color.clear))
+      if resting, let start = state.restStartedAt {
+        Text(
+          timerInterval: start...start.addingTimeInterval(
+            Double(max(state.restMaxSeconds, 60)) + 1
+          ),
+          pauseTime: nil,
+          countsDown: false,
+          showsHours: false
+        )
+        .monospacedDigit()
+        .multilineTextAlignment(.center)
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.white)
+        .frame(width: 64)
+      } else if let reps = state.currentReps {
+        Text("\(reps)")
+          .font(.title3.weight(.bold))
+          .foregroundStyle(.white)
+      }
+    }
+    .frame(width: resting ? 84 : 44, height: 44)
+    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: resting)
+    .animation(.easeOut(duration: 0.15), value: state.currentReps)
+  }
+
   private func setLabel(_ state: WorkoutActivityAttributes.ContentState) -> some View {
-    Text("\(state.currentSet) / \(state.totalSets)세트")
+    Text("\(state.currentSet)/\(state.totalSets)")
       .font(.subheadline.weight(.medium))
   }
 
   @ViewBuilder
   private func restLabel(_ state: WorkoutActivityAttributes.ContentState) -> some View {
-    if let restStartedAt = state.restStartedAt {
+    if state.showRestInButton {
+      EmptyView()
+    } else if let restStartedAt = state.restStartedAt {
       HStack(spacing: 4) {
         Image(systemName: "timer")
         Text(timerInterval: restStartedAt...Date.distantFuture, countsDown: false)
@@ -94,34 +142,5 @@ struct WorkoutLiveActivityWidget: Widget {
         .font(.caption)
         .foregroundStyle(.secondary)
     }
-  }
-}
-
-struct RecordCurrentSetIntent: AppIntent {
-  static var title: LocalizedStringResource = "현재 세트 기록"
-  static var openAppWhenRun = true
-
-  @Parameter(title: "운동 세션")
-  var sessionID: String
-
-  init() {}
-
-  init(sessionID: String) {
-    self.sessionID = sessionID
-  }
-
-  func perform() async throws -> some IntentResult {
-    guard
-      let activity = Activity<WorkoutActivityAttributes>.activities.first(where: {
-        $0.attributes.sessionID == sessionID
-      }),
-      activity.contentState.canRecord
-    else {
-      return .result()
-    }
-    var state = activity.contentState
-    state.pendingRecordRequestID = UUID().uuidString
-    await activity.update(using: state)
-    return .result()
   }
 }

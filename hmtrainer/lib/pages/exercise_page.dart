@@ -795,8 +795,7 @@ class _ExercisePageState extends State<ExercisePage> {
                                     key: ValueKey(
                                       'weight-${widget.selectedSplitTargetIndex}-$sessionIndex-${session.exercise}',
                                     ),
-                                    initialValue:
-                                        session.weight == null
+                                    initialValue: session.weight == null
                                         ? ''
                                         : formatWeight(session.weight!),
                                     keyboardType:
@@ -804,9 +803,7 @@ class _ExercisePageState extends State<ExercisePage> {
                                           decimal: true,
                                         ),
                                     textInputAction: TextInputAction.next,
-                                    inputFormatters: [
-                                      WeightInputFormatter(),
-                                    ],
+                                    inputFormatters: [WeightInputFormatter()],
                                     style: const TextStyle(
                                       color: Colors.black87,
                                     ),
@@ -972,7 +969,7 @@ class _ExercisePageState extends State<ExercisePage> {
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
-                 controller: widget.weeklyWorkoutController,
+                  controller: widget.weeklyWorkoutController,
                   decoration: const InputDecoration(
                     filled: true,
                     fillColor: Colors.white,

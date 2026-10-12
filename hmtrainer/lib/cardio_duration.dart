@@ -24,7 +24,11 @@ class CardioDuration {
     return parsed;
   }
 
-  static int? tryParseTotalSeconds(String hours, String minutes, String seconds) {
+  static int? tryParseTotalSeconds(
+    String hours,
+    String minutes,
+    String seconds,
+  ) {
     final parsedHours = tryParsePart(hours, maxHours);
     final parsedMinutes = tryParsePart(minutes, maxMinutes);
     final parsedSeconds = tryParsePart(seconds, maxSeconds);

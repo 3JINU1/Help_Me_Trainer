@@ -13,6 +13,8 @@
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
+		A12000000000000000000002 /* RecordCurrentSetIntent.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = A12000000000000000000001 /* RecordCurrentSetIntent.swift */; };
+		A12000000000000000000003 /* RecordCurrentSetIntent.swift in Widget Sources */ = {isa = PBXBuildFile; fileRef = A12000000000000000000001 /* RecordCurrentSetIntent.swift */; };
 		A11000000000000000000002 /* WorkoutActivityAttributes.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = A11000000000000000000001 /* WorkoutActivityAttributes.swift */; };
 		A11000000000000000000004 /* WorkoutActivityAttributes.swift in Widget Sources */ = {isa = PBXBuildFile; fileRef = A11000000000000000000001 /* WorkoutActivityAttributes.swift */; };
 		A11000000000000000000005 /* WorkoutLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11000000000000000000003 /* WorkoutLiveActivityWidget.swift */; };
@@ -79,6 +81,7 @@
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		A12000000000000000000001 /* RecordCurrentSetIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordCurrentSetIntent.swift; sourceTree = "<group>"; };
 		A11000000000000000000001 /* WorkoutActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutActivityAttributes.swift; sourceTree = "<group>"; };
 		A11000000000000000000003 /* WorkoutLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutLiveActivityWidget.swift; sourceTree = "<group>"; };
 		A11000000000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -192,6 +195,7 @@
 			isa = PBXGroup;
 			children = (
 				A11000000000000000000001 /* WorkoutActivityAttributes.swift */,
+				A12000000000000000000001 /* RecordCurrentSetIntent.swift */,
 				A11000000000000000000003 /* WorkoutLiveActivityWidget.swift */,
 				A11000000000000000000006 /* Info.plist */,
 			);
@@ -445,6 +449,7 @@
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				A11000000000000000000002 /* WorkoutActivityAttributes.swift in Runner Sources */,
+				A12000000000000000000002 /* RecordCurrentSetIntent.swift in Runner Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -453,6 +458,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A11000000000000000000004 /* WorkoutActivityAttributes.swift in Widget Sources */,
+				A12000000000000000000003 /* RecordCurrentSetIntent.swift in Widget Sources */,
 				A11000000000000000000005 /* WorkoutLiveActivityWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
