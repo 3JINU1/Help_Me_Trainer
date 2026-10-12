@@ -116,6 +116,225 @@ void main() {
     );
   });
 
+  testWidgets('종목 순서는 자유롭고 목표 미달 반복도 수행한 세트로 인정한다', (
+    WidgetTester tester,
+  ) async {
+    const routineId = 'flexible-order-workout';
+    final weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+    final todayWeekday = weekdays[DateTime.now().weekday - 1];
+    SharedPreferences.setMockInitialValues({});
+    final workoutProvider = WorkoutProvider();
+    await workoutProvider.ready;
+    await workoutProvider.addRoutine(
+      WorkoutRoutine(
+        id: routineId,
+        name: '순서·부분 반복 루틴',
+        exercises: [
+          RoutineExercise(name: '첫 운동', sets: 1, reps: 5, weight: 20),
+          RoutineExercise(name: '두 번째 운동', sets: 2, reps: 5, weight: 10),
+        ],
+      ),
+    );
+    await workoutProvider.assignRoutineToWeekday(todayWeekday, routineId);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MyHomePage(title: 'HMT', workoutProvider: workoutProvider),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.pumpAndSettle();
+
+    final secondExerciseFirstSet = find.byKey(const Key('today_set_두 번째 운동_0'));
+    final secondExerciseSecondSet = find.byKey(
+      const Key('today_set_두 번째 운동_1'),
+    );
+    final firstExerciseSet = find.byKey(const Key('today_set_첫 운동_0'));
+    expect(
+      tester.widget<GestureDetector>(secondExerciseFirstSet).onTap,
+      isNotNull,
+    );
+    expect(
+      tester.widget<GestureDetector>(secondExerciseSecondSet).onTap,
+      isNull,
+    );
+
+    Future<void> enterFourReps(Finder set) async {
+      await tester.ensureVisible(set);
+      await tester.tap(set);
+      await tester.pump();
+      await tester.tap(set);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1300));
+      await tester.pumpAndSettle();
+    }
+
+    await enterFourReps(secondExerciseFirstSet);
+    expect(
+      tester.widget<GestureDetector>(secondExerciseSecondSet).onTap,
+      isNotNull,
+    );
+    await enterFourReps(secondExerciseSecondSet);
+    await enterFourReps(firstExerciseSet);
+
+    await tester.ensureVisible(find.text('운동 종료'));
+    await tester.tap(find.text('운동 종료'));
+    await tester.pumpAndSettle();
+    expect(find.text('아직 끝내지 않은 운동이 있습니다. 그래도 종료하시겠습니까?'), findsNothing);
+
+    final prefs = await SharedPreferences.getInstance();
+    final records = prefs
+        .getStringList('workout_records')!
+        .map((record) => jsonDecode(record) as Map<String, dynamic>);
+    expect(
+      records.map((record) => record['exercise']),
+      containsAll(['첫 운동', '두 번째 운동']),
+    );
+    expect(
+      prefs.getStringList('completed_workout_dates'),
+      contains(DateTime.now().toIso8601String().substring(0, 10)),
+    );
+  });
+  testWidgets('오늘 운동 중량 수정은 루틴에 저장되고 목표 달성 시 수정 중량에서 증량한다', (
+    WidgetTester tester,
+  ) async {
+    const routineId = 'editable-workout-weight';
+    final weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+    final todayWeekday = weekdays[DateTime.now().weekday - 1];
+    SharedPreferences.setMockInitialValues({});
+    final workoutProvider = WorkoutProvider();
+    await workoutProvider.ready;
+    await workoutProvider.addRoutine(
+      WorkoutRoutine(
+        id: routineId,
+        name: '중량 수정 테스트',
+        exercises: [
+          RoutineExercise(name: '중량 테스트 운동', sets: 1, reps: 3, weight: 20),
+        ],
+      ),
+    );
+    await workoutProvider.assignRoutineToWeekday(todayWeekday, routineId);
+    await workoutProvider.setExerciseProgressionAmount('중량 테스트 운동', 1.75);
+    await workoutProvider.setExerciseProgressionEnabled('중량 테스트 운동', true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MyHomePage(title: 'HMT', workoutProvider: workoutProvider),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('today_weight_중량 테스트 운동')));
+    await tester.pumpAndSettle();
+    final weightInput = find.byKey(const Key('today_workout_weight_input'));
+    await tester.enterText(weightInput, '40.5');
+    await tester.tap(find.byKey(const Key('today_workout_weight_save')));
+    await tester.pumpAndSettle();
+
+    expect(
+      workoutProvider.getRoutineById(routineId)!.exercises.single.weight,
+      40.5,
+    );
+
+    final set = find.byKey(const Key('today_set_중량 테스트 운동_0'));
+    await tester.tap(set);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('운동 종료'));
+    await tester.tap(find.text('운동 종료'));
+    await tester.pumpAndSettle();
+
+    expect(
+      workoutProvider.getRoutineById(routineId)!.exercises.single.weight,
+      42.25,
+    );
+    expect(workoutProvider.workoutRecords.single.weight, 40.5);
+  });
+  testWidgets('유산소 타이머 버튼이 시작과 일시정지를 전환하고 남은 시간부터 재개한다', (
+    WidgetTester tester,
+  ) async {
+    const routineId = 'cardio-pause-resume';
+    final weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+    final todayWeekday = weekdays[DateTime.now().weekday - 1];
+    SharedPreferences.setMockInitialValues({});
+    final workoutProvider = WorkoutProvider();
+    await workoutProvider.ready;
+    await workoutProvider.addRoutine(
+      WorkoutRoutine(
+        id: routineId,
+        name: '유산소 타이머 테스트',
+        exercises: [
+          RoutineExercise(
+            name: '테스트 러닝',
+            sets: 1,
+            reps: 0,
+            weight: 0,
+            type: '유산소',
+            cardioSeconds: 60,
+          ),
+        ],
+      ),
+    );
+    await workoutProvider.assignRoutineToWeekday(todayWeekday, routineId);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MyHomePage(title: 'HMT', workoutProvider: workoutProvider),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.pumpAndSettle();
+
+    final cardioButton = find.byKey(const Key('cardio_toggle_테스트 러닝'));
+    expect(
+      find.descendant(of: cardioButton, matching: find.text('start')),
+      findsOneWidget,
+    );
+    await tester.tap(cardioButton);
+    await tester.pump();
+    expect(
+      find.descendant(of: cardioButton, matching: find.text('pause')),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('남은시간: 00:00:57'), findsOneWidget);
+
+    await tester.tap(cardioButton);
+    await tester.pump();
+    expect(
+      find.descendant(of: cardioButton, matching: find.text('start')),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('남은시간: 00:00:57'), findsOneWidget);
+
+    await tester.tap(cardioButton);
+    await tester.pump();
+    expect(
+      find.descendant(of: cardioButton, matching: find.text('pause')),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('남은시간: 00:00:55'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('cardio_reset_테스트 러닝')));
+    await tester.pump();
+    expect(find.text('남은시간: 00:01:00'), findsOneWidget);
+    expect(
+      find.descendant(of: cardioButton, matching: find.text('start')),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('남은시간: 00:01:00'), findsOneWidget);
+  });
+
   testWidgets('그래프 표시 여부와 전체 운동 선택 체크박스를 제어한다', (WidgetTester tester) async {
     final records = [
       WorkoutRecord(exercise: '스쿼트', weight: 100, date: DateTime(2024, 1, 1)),
@@ -159,6 +378,33 @@ void main() {
       find.byKey(const Key('toggle_all_exercises_checkbox')),
     );
     expect(checkbox.value, isFalse);
+  });
+
+  testWidgets('운동 그래프 가로축에 저장된 운동 날짜를 표시한다', (WidgetTester tester) async {
+    final semantics = tester.ensureSemantics();
+    final records = [
+      WorkoutRecord(exercise: '스쿼트', weight: 80, date: DateTime(2026, 10, 2)),
+      WorkoutRecord(exercise: '스쿼트', weight: 85, date: DateTime(2026, 10, 8)),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 260,
+            child: PerformanceChart(records: records),
+          ),
+        ),
+      ),
+    );
+
+    final chartSemantics = tester.getSemantics(
+      find.byKey(const Key('performance_chart_semantics')),
+    );
+    expect(chartSemantics.label, contains('가로축: 저장 날짜, 10/2, 10/8'));
+    expect(chartSemantics.label, contains('세로축: 중량 (kg)'));
+    semantics.dispose();
   });
 
   testWidgets('증량값을 Cupertino 피커로 선택한다', (WidgetTester tester) async {

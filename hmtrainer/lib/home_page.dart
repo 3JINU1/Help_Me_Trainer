@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -11,13 +12,10 @@ import 'pages/exercise_page.dart';
 import 'pages/progress_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/workout_provider.dart';
+import 'weight_input_formatter.dart';
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({
-    super.key,
-    required this.title,
-    this.workoutProvider,
-  });
+  const MyHomePage({super.key, required this.title, this.workoutProvider});
 
   final String title;
   final WorkoutProvider? workoutProvider;
@@ -26,7 +24,11 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
+  static const MethodChannel _workoutActivityChannel = MethodChannel(
+    'com.example.hmtrainer/workout_activity',
+  );
+
   int _selectedIndex = 0;
   bool _isWorkoutMode = false;
   bool _isPlaying = false;
@@ -50,6 +52,7 @@ class _MyHomePageState extends State<MyHomePage> {
   String? _exerciseCatalogError;
   final Map<String, List<int?>> _exerciseSetProgress = {};
   final Map<String, double> _workoutWeights = {};
+  String? _activeWorkoutExerciseName;
   DateTime? _workoutProgressDate;
   final Map<String, Map<int, Timer?>> _setTouchTimers = {};
   final Map<String, Set<int>> _finalizedSetIndexes = {};
@@ -90,9 +93,20 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _workoutProvider = widget.workoutProvider ?? WorkoutProvider();
     _loadExerciseCatalog();
     _loadWorkoutData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_consumeLiveActivityRecordRequest());
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_consumeLiveActivityRecordRequest());
+    }
   }
 
   List<ExerciseEntry> get _exerciseNames =>
@@ -170,6 +184,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _restSeconds = settings.initialSeconds;
       _restAlertSeconds = List.of(settings.alertSeconds);
       _restElapsedSeconds = 0;
+      _weekendSkipped = _workoutProvider.weekendSkipped;
     });
   }
 
@@ -187,6 +202,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _cardioRunning.updateAll((_, __) => false);
       }
     });
+    unawaited(_syncWorkoutLiveActivity());
   }
 
   void _toggleWorkoutMode() {
@@ -207,6 +223,118 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     });
     _syncRestTimerOverlay();
+    unawaited(_syncWorkoutLiveActivity());
+  }
+
+  Future<void> _syncWorkoutLiveActivity() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    if (!_isWorkoutMode) {
+      await _workoutActivityChannel.invokeMethod<void>('end');
+      return;
+    }
+
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    if (routine == null || routine.exercises.isEmpty) {
+      await _workoutActivityChannel.invokeMethod<void>('end');
+      return;
+    }
+    final strengthExercises = routine.exercises
+        .where((exercise) => exercise.type != '유산소')
+        .toList();
+    final candidates = strengthExercises.isEmpty
+        ? routine.exercises
+        : strengthExercises;
+    final exercise = candidates.firstWhere(
+      (item) =>
+          item.name == _activeWorkoutExerciseName &&
+          !_isExerciseCompleted(item.name),
+      orElse: () => candidates.firstWhere(
+        (item) => !_isExerciseCompleted(item.name),
+        orElse: () => candidates.first,
+      ),
+    );
+    final finalized = _finalizedSetIndexes[exercise.name] ?? const <int>{};
+    final setIndex = exercise.sets == 0
+        ? 0
+        : List<int>.generate(exercise.sets, (index) => index).firstWhere(
+            (index) => !finalized.contains(index),
+            orElse: () => exercise.sets - 1,
+          );
+    final previousSetsDone = List<int>.generate(
+      setIndex,
+      (index) => index,
+    ).every(finalized.contains);
+    final isStrengthExercise = exercise.type != '유산소';
+    final canRecord =
+        isStrengthExercise &&
+        exercise.sets > 0 &&
+        !finalized.contains(setIndex) &&
+        previousSetsDone;
+    final restStartedAtEpochMs = _isResting
+        ? DateTime.now()
+              .subtract(Duration(seconds: _restElapsedSeconds))
+              .millisecondsSinceEpoch
+              .toDouble()
+        : null;
+
+    await _workoutActivityChannel.invokeMethod<bool>('sync', {
+      'exerciseName': exercise.name,
+      'currentSet': setIndex + 1,
+      'totalSets': exercise.sets > 0 ? exercise.sets : 1,
+      'canRecord': canRecord,
+      'restStartedAtEpochMs': restStartedAtEpochMs,
+    });
+  }
+
+  Future<void> _consumeLiveActivityRecordRequest() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    final request = await _workoutActivityChannel
+        .invokeMapMethod<String, dynamic>('consumeRecordRequest');
+    if (request == null) return;
+    final exerciseName = request['exerciseName'];
+    final setIndex = request['setIndex'];
+    if (exerciseName is! String || setIndex is! int) {
+      _showTopMessage('다이나믹 아일랜드에서 요청한 세트를 읽지 못했습니다.');
+      return;
+    }
+    _recordSetFromLiveActivity(exerciseName, setIndex);
+  }
+
+  void _recordSetFromLiveActivity(String exerciseName, int setIndex) {
+    if (!_isWorkoutMode) {
+      _showTopMessage('운동 진행 중일 때만 세트를 기록할 수 있습니다.');
+      return;
+    }
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    final exercise = routine?.exercises.firstWhere(
+      (item) => item.name == exerciseName,
+      orElse: () =>
+          RoutineExercise(name: exerciseName, sets: 0, reps: 0, weight: 0),
+    );
+    final progress = _exerciseSetProgress[exerciseName];
+    if (exercise == null ||
+        exercise.type == '유산소' ||
+        progress == null ||
+        setIndex < 0 ||
+        setIndex >= progress.length) {
+      _showTopMessage('현재 운동 세트를 찾을 수 없습니다.');
+      return;
+    }
+    final previousSetsDone = List<int>.generate(
+      setIndex,
+      (index) => index,
+    ).every((index) => _isSetFinalized(exerciseName, index));
+    if (_isSetFinalized(exerciseName, setIndex) || !previousSetsDone) {
+      _showTopMessage('이 세트는 지금 기록할 수 없습니다.');
+      return;
+    }
+
+    _setTouchTimers[exerciseName]?[setIndex]?.cancel();
+    progress[setIndex] ??= exercise.reps;
+    _finalizedSetIndexes.putIfAbsent(exerciseName, () => <int>{}).add(setIndex);
+    _activeWorkoutExerciseName = exerciseName;
+    _startRestTimer();
+    setState(() {});
   }
 
   bool _canResumeWorkout(DateTime date) {
@@ -250,9 +378,11 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       } else if (progress.length != exercise.sets) {
         final resized = List<int?>.filled(exercise.sets, null);
-        for (var index = 0;
-            index < progress.length && index < resized.length;
-            index++) {
+        for (
+          var index = 0;
+          index < progress.length && index < resized.length;
+          index++
+        ) {
           resized[index] = progress[index];
         }
         _exerciseSetProgress[exercise.name] = resized;
@@ -294,6 +424,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (_isResting) {
         _startRestTimer(reset: false);
       }
+      unawaited(_syncWorkoutLiveActivity());
       return;
     }
 
@@ -306,6 +437,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _cardioRunning.updateAll((_, __) => false);
       });
       _syncRestTimerOverlay();
+      unawaited(_syncWorkoutLiveActivity());
       return;
     }
 
@@ -324,6 +456,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _startCardioTimer(entry.key);
       }
     }
+    unawaited(_syncWorkoutLiveActivity());
   }
 
   void _initializeWorkoutProgress() {
@@ -337,6 +470,18 @@ class _MyHomePageState extends State<MyHomePage> {
     _cardioTimers.clear();
     _cardioRemainingSeconds.clear();
     _cardioRunning.clear();
+    _activeWorkoutExerciseName = null;
+    if (routine != null) {
+      for (final exercise in routine.exercises) {
+        if (exercise.type != '유산소') {
+          _activeWorkoutExerciseName = exercise.name;
+          break;
+        }
+      }
+      _activeWorkoutExerciseName ??= routine.exercises.isEmpty
+          ? null
+          : routine.exercises.first.name;
+    }
     _isResting = false;
     _restElapsedSeconds = 0;
     _restAlertStage = 0;
@@ -361,6 +506,83 @@ class _MyHomePageState extends State<MyHomePage> {
         _cardioRunning[exercise.name] = false;
       }
     }
+  }
+
+  Future<void> _editWorkoutWeight(String exerciseName) async {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    if (routine == null) return;
+    final exerciseIndex = routine.exercises.indexWhere(
+      (item) => item.name == exerciseName && item.type != '유산소',
+    );
+    if (exerciseIndex < 0) return;
+    final exercise = routine.exercises[exerciseIndex];
+
+    var inputText = formatWeight(
+      _workoutWeights[exerciseName] ?? exercise.weight,
+    );
+    double? updatedWeight;
+    String? validationError;
+    updatedWeight = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          backgroundColor: Colors.white,
+          title: const Text(
+            '오늘 운동 중량 수정',
+            style: TextStyle(color: Colors.black87),
+          ),
+          content: TextField(
+            key: const Key('today_workout_weight_input'),
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [WeightInputFormatter()],
+            style: const TextStyle(color: Colors.black87),
+            decoration: InputDecoration(
+              labelText: '무게(kg)',
+              errorText: validationError,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (value) => inputText = value,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              key: const Key('today_workout_weight_save'),
+              onPressed: () {
+                final value = double.tryParse(inputText);
+                if (value == null || value < 0) {
+                  setDialogState(() => validationError = '0 이상의 숫자를 입력하세요.');
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: const Text('저장'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (updatedWeight == null || !mounted) return;
+    await _workoutProvider.updateRoutineExerciseWeights(routine.id, {
+      exerciseName: updatedWeight,
+    });
+    if (!mounted) return;
+
+    _workoutWeights[exerciseName] = updatedWeight;
+    if (_selectedRoutineId == routine.id) {
+      for (final sessions in _splitTargetSessions) {
+        for (final session in sessions) {
+          if (session.exercise == exerciseName) {
+            session.weight = updatedWeight;
+          }
+        }
+      }
+    }
+    setState(() {});
   }
 
   String _formatDuration(int totalSeconds) {
@@ -429,6 +651,28 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {});
   }
 
+  void _resetCardioTimer(String exerciseName) {
+    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
+    final exercise = routine?.exercises.firstWhere(
+      (item) => item.name == exerciseName && item.type == '유산소',
+      orElse: () => RoutineExercise(
+        name: exerciseName,
+        sets: 0,
+        reps: 0,
+        weight: 0,
+        type: '유산소',
+      ),
+    );
+    if (exercise == null || exercise.type != '유산소') return;
+
+    _cardioTimers[exerciseName]?.cancel();
+    _cardioTimers[exerciseName] = null;
+    _cardioRunning[exerciseName] = false;
+    setState(() {
+      _cardioRemainingSeconds[exerciseName] = exercise.cardioSeconds;
+    });
+  }
+
   bool _isSetFinalized(String exerciseName, int setIndex) {
     return _finalizedSetIndexes[exerciseName]?.contains(setIndex) ?? false;
   }
@@ -459,21 +703,6 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  bool _isExerciseUnlocked(String exerciseName) {
-    final routine = _workoutProvider.getRoutineForDate(DateTime.now());
-    if (routine == null) return true;
-
-    final index = routine.exercises.indexWhere(
-      (exercise) => exercise.name == exerciseName,
-    );
-    if (index <= 0) return true;
-
-    return List.generate(
-      index,
-      (i) => routine.exercises[i],
-    ).every((exercise) => _isExerciseCompleted(exercise.name));
-  }
-
   void _resetSetValue(String exerciseName, int setIndex) {
     final progress = _exerciseSetProgress[exerciseName];
     if (progress == null || setIndex < 0 || setIndex >= progress.length) return;
@@ -482,14 +711,13 @@ class _MyHomePageState extends State<MyHomePage> {
     _finalizedSetIndexes[exerciseName]?.remove(setIndex);
     progress[setIndex] = null;
     setState(() {});
+    unawaited(_syncWorkoutLiveActivity());
   }
 
   void _startSetTouchTimer(String exerciseName, int setIndex) {
     final progress = _exerciseSetProgress[exerciseName];
     if (progress == null || setIndex < 0 || setIndex >= progress.length) return;
     if (_isSetFinalized(exerciseName, setIndex)) return;
-    if (!_isExerciseUnlocked(exerciseName)) return;
-
     final previousSetDone =
         setIndex == 0 ||
         List.generate(
@@ -507,8 +735,10 @@ class _MyHomePageState extends State<MyHomePage> {
       _finalizedSetIndexes
           .putIfAbsent(exerciseName, () => <int>{})
           .add(setIndex);
+      _activeWorkoutExerciseName = exerciseName;
       _startRestTimer();
       setState(() {});
+      unawaited(_syncWorkoutLiveActivity());
     });
 
     _setTouchTimers[exerciseName]![setIndex] = timer;
@@ -523,8 +753,6 @@ class _MyHomePageState extends State<MyHomePage> {
     );
 
     if (exercise == null) return;
-    if (!_isExerciseUnlocked(exerciseName)) return;
-
     final progress = _exerciseSetProgress[exerciseName];
     if (progress == null || setIndex < 0 || setIndex >= progress.length) return;
     if (_isSetFinalized(exerciseName, setIndex)) return;
@@ -543,9 +771,10 @@ class _MyHomePageState extends State<MyHomePage> {
     } else {
       progress[setIndex] = current > 0 ? current - 1 : 0;
     }
-
+    _activeWorkoutExerciseName = exerciseName;
     _startSetTouchTimer(exerciseName, setIndex);
     setState(() {});
+    unawaited(_syncWorkoutLiveActivity());
   }
 
   void _startRestTimer({bool reset = true}) {
@@ -572,6 +801,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _messageOverlayEntry?.markNeedsBuild();
     });
     _syncRestTimerOverlay();
+    unawaited(_syncWorkoutLiveActivity());
   }
 
   void _stopRestTimer({bool reset = true}) {
@@ -584,6 +814,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _restAlertStage = 0;
       _removeRestTimerOverlay();
       _messageOverlayEntry?.markNeedsBuild();
+      unawaited(_syncWorkoutLiveActivity());
     }
   }
 
@@ -1362,9 +1593,10 @@ class _MyHomePageState extends State<MyHomePage> {
                     activeTrackColor: red,
                     inactiveThumbColor: Colors.white,
                     inactiveTrackColor: Colors.grey.shade300,
-                    onChanged: (value) {
+                    onChanged: (value) async {
                       setDialogState(() => _weekendSkipped = value);
                       setState(() => _weekendSkipped = value);
+                      await _workoutProvider.setWeekendSkipped(value);
                     },
                   ),
                 ],
@@ -1492,11 +1724,6 @@ class _MyHomePageState extends State<MyHomePage> {
                       ),
                     ),
                     onPressed: () {
-                      if (_weekendSkipped) {
-                        for (final day in ['토', '일']) {
-                          _workoutProvider.assignRoutineToWeekday(day, '');
-                        }
-                      }
                       setState(() {});
                       Navigator.pop(context);
                     },
@@ -1546,7 +1773,7 @@ class _MyHomePageState extends State<MyHomePage> {
             return remaining < exercise.cardioSeconds;
           }
           final progress = _exerciseSetProgress[exercise.name];
-          return progress?.any((value) => value != null) ?? false;
+          return progress?.any((value) => value != null && value > 0) ?? false;
         })
         .map(
           (exercise) => WorkoutRecord(
@@ -1611,16 +1838,18 @@ class _MyHomePageState extends State<MyHomePage> {
         final finalized = _finalizedSetIndexes[exercise.name] ?? const <int>{};
         final appliedWeight = _workoutWeights[exercise.name];
         if (progress != null && appliedWeight != null) {
+          final progression = _workoutProvider.progressionForExercise(
+            exercise.name,
+          );
           final completedWeight = exercise.completedProgressionWeight(
-            progressionEnabled: _workoutProvider
-                .progressionForExercise(exercise.name)
-                .enabled,
+            progressionEnabled: progression.enabled,
             repetitionsBySet: progress,
             finalizedSetIndexes: finalized,
             appliedWeight: appliedWeight,
           );
           if (completedWeight != null) {
-            updatedWeights[exercise.name] = completedWeight;
+            updatedWeights[exercise.name] =
+                completedWeight + progression.incrementKg;
           }
         }
       }
@@ -1649,6 +1878,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _isPlaying = false;
       _cardioRunning.updateAll((_, __) => false);
     });
+    await _syncWorkoutLiveActivity();
   }
 
   void _confirmResetCompletedWorkout() {
@@ -1688,7 +1918,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _restTimer?.cancel();
+    for (final timer in _cardioTimers.values) {
+      timer?.cancel();
+    }
     _stopRestAlarm();
     _messageTimer?.cancel();
     _removeTopMessage();
@@ -2088,10 +2322,6 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ) {
                                   final exerciseIndex = entry.key;
                                   final exercise = entry.value;
-                                  final isExerciseLocked = !_isExerciseUnlocked(
-                                    exercise.name,
-                                  );
-
                                   if (exercise.type == '유산소') {
                                     final goalSeconds = exercise.cardioSeconds;
                                     final remainingSeconds =
@@ -2101,127 +2331,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                     final isRunning =
                                         _cardioRunning[exercise.name] ?? false;
 
-                                    return Opacity(
-                                      opacity: isExerciseLocked ? 0.45 : 1.0,
-                                      child: Container(
-                                        width: double.infinity,
-                                        margin: const EdgeInsets.only(
-                                          bottom: 18,
-                                        ),
-                                        padding: const EdgeInsets.all(14),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.grey.shade200,
-                                          ),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                _todayExerciseImage(
-                                                  exercise.name,
-                                                ),
-                                                const SizedBox(width: 12),
-                                                Expanded(
-                                                  child: Text(
-                                                    exercise.name,
-                                                    style: const TextStyle(
-                                                      color: Colors.black,
-                                                      fontSize: 18,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 12),
-                                            Text(
-                                              '목표시간: ${_formatDuration(goalSeconds)}',
-                                              style: const TextStyle(
-                                                color: Colors.black87,
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 10),
-                                            Text(
-                                              '남은시간: ${_formatDuration(remainingSeconds)}',
-                                              style: const TextStyle(
-                                                color: Colors.red,
-                                                fontSize: 20,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 12),
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: ElevatedButton(
-                                                    onPressed: isExerciseLocked
-                                                        ? null
-                                                        : () =>
-                                                              _startCardioTimer(
-                                                                exercise.name,
-                                                              ),
-                                                    style:
-                                                        ElevatedButton.styleFrom(
-                                                          backgroundColor:
-                                                              Colors
-                                                                  .red
-                                                                  .shade600,
-                                                          foregroundColor:
-                                                              Colors.white,
-                                                        ),
-                                                    child: const Text('start'),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Expanded(
-                                                  child: ElevatedButton(
-                                                    onPressed: isExerciseLocked
-                                                        ? null
-                                                        : () =>
-                                                              _pauseCardioTimer(
-                                                                exercise.name,
-                                                              ),
-                                                    style:
-                                                        ElevatedButton.styleFrom(
-                                                          backgroundColor:
-                                                              Colors
-                                                                  .grey
-                                                                  .shade200,
-                                                          foregroundColor:
-                                                              Colors.black87,
-                                                        ),
-                                                    child: const Text('rest'),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  }
-
-                                  final progress =
-                                      _exerciseSetProgress[exercise.name] ??
-                                      List<int?>.filled(
-                                        exercise.sets,
-                                        null,
-                                        growable: false,
-                                      );
-
-                                  return Opacity(
-                                    opacity: isExerciseLocked ? 0.45 : 1.0,
-                                    child: Container(
+                                    return Container(
                                       width: double.infinity,
                                       margin: const EdgeInsets.only(bottom: 18),
                                       padding: const EdgeInsets.all(14),
@@ -2252,111 +2362,257 @@ class _MyHomePageState extends State<MyHomePage> {
                                                   ),
                                                 ),
                                               ),
-                                              Text(
-                                                '${formatWeight(_workoutWeights[exercise.name] ?? exercise.weight.toDouble())}kg',
-                                                style: const TextStyle(
-                                                  color: Colors.black87,
-                                                  fontSize: 15,
-                                                  fontWeight: FontWeight.w600,
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            '목표시간: ${_formatDuration(goalSeconds)}',
+                                            style: const TextStyle(
+                                              color: Colors.black87,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Text(
+                                            '남은시간: ${_formatDuration(remainingSeconds)}',
+                                            style: const TextStyle(
+                                              color: Colors.red,
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: ElevatedButton(
+                                                  key: Key(
+                                                    'cardio_toggle_${exercise.name}',
+                                                  ),
+                                                  onPressed:
+                                                      remainingSeconds <= 0
+                                                      ? null
+                                                      : isRunning
+                                                      ? () => _pauseCardioTimer(
+                                                          exercise.name,
+                                                        )
+                                                      : () => _startCardioTimer(
+                                                          exercise.name,
+                                                        ),
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                        backgroundColor:
+                                                            isRunning
+                                                            ? Colors
+                                                                  .grey
+                                                                  .shade200
+                                                            : Colors
+                                                                  .red
+                                                                  .shade600,
+                                                        foregroundColor:
+                                                            isRunning
+                                                            ? Colors.black87
+                                                            : Colors.white,
+                                                      ),
+                                                  child: Text(
+                                                    remainingSeconds <= 0
+                                                        ? 'done'
+                                                        : isRunning
+                                                        ? 'pause'
+                                                        : 'start',
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              IconButton(
+                                                key: Key(
+                                                  'cardio_reset_${exercise.name}',
+                                                ),
+                                                tooltip: 'reset',
+                                                onPressed: () =>
+                                                    _resetCardioTimer(
+                                                      exercise.name,
+                                                    ),
+                                                style: IconButton.styleFrom(
+                                                  backgroundColor:
+                                                      Colors.grey.shade200,
+                                                  foregroundColor:
+                                                      Colors.black87,
+                                                ),
+                                                icon: const Icon(
+                                                  Icons.restart_alt,
                                                 ),
                                               ),
                                             ],
                                           ),
-                                          const SizedBox(height: 12),
-                                          SizedBox(
-                                            height: 38,
-                                            child: ListView.separated(
-                                              scrollDirection: Axis.horizontal,
-                                              itemCount: exercise.sets,
-                                              separatorBuilder: (_, __) =>
-                                                  const SizedBox(width: 8),
-                                              itemBuilder: (context, index) {
-                                                final value = progress[index];
-                                                final isEmpty = value == null;
-                                                final isBlocked =
-                                                    isExerciseLocked ||
-                                                    (index > 0 &&
-                                                        !_isSetFinalized(
-                                                          exercise.name,
-                                                          index - 1,
-                                                        ));
-                                                final isFinalized =
-                                                    _isSetFinalized(
-                                                      exercise.name,
-                                                      index,
-                                                    );
-
-                                                return GestureDetector(
-                                                  key: Key(
-                                                    'today_set_${exercise.name}_$index',
-                                                  ),
-                                                  onTap: isBlocked
-                                                      ? null
-                                                      : () => _recordSetValue(
-                                                          exercise.name,
-                                                          index,
-                                                        ),
-                                                  onLongPress: isExerciseLocked
-                                                      ? null
-                                                      : () => _resetSetValue(
-                                                          exercise.name,
-                                                          index,
-                                                        ),
-                                                  child: AnimatedContainer(
-                                                    duration: const Duration(
-                                                      milliseconds: 180,
-                                                    ),
-                                                    width: 42,
-                                                    height: 42,
-                                                    decoration: BoxDecoration(
-                                                      shape: BoxShape.circle,
-                                                      border: Border.all(
-                                                        color: isBlocked
-                                                            ? Colors
-                                                                  .grey
-                                                                  .shade300
-                                                            : (isEmpty
-                                                                  ? Colors
-                                                                        .black54
-                                                                  : (isFinalized
-                                                                        ? Colors
-                                                                              .red
-                                                                        : Colors
-                                                                              .black54)),
-                                                        width: 1.5,
-                                                      ),
-                                                      color: isBlocked
-                                                          ? Colors.grey.shade100
-                                                          : (isFinalized
-                                                                ? Colors.red
-                                                                : Colors.white),
-                                                    ),
-                                                    child: isEmpty
-                                                        ? const SizedBox()
-                                                        : Center(
-                                                            child: Text(
-                                                              value.toString(),
-                                                              style: TextStyle(
-                                                                color:
-                                                                    isFinalized
-                                                                    ? Colors
-                                                                          .white
-                                                                    : Colors
-                                                                          .black87,
-                                                                fontSize: 13,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w700,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                          ),
                                         ],
                                       ),
+                                    );
+                                  }
+
+                                  final progress =
+                                      _exerciseSetProgress[exercise.name] ??
+                                      List<int?>.filled(
+                                        exercise.sets,
+                                        null,
+                                        growable: false,
+                                      );
+
+                                  return Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 18),
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: Colors.grey.shade200,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            _todayExerciseImage(exercise.name),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Text(
+                                                exercise.name,
+                                                style: const TextStyle(
+                                                  color: Colors.black,
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                            InkWell(
+                                              key: Key(
+                                                'today_weight_${exercise.name}',
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              onTap: () => _editWorkoutWeight(
+                                                exercise.name,
+                                              ),
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(
+                                                  6,
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      '${formatWeight(_workoutWeights[exercise.name] ?? exercise.weight.toDouble())}kg',
+                                                      style: const TextStyle(
+                                                        color: Colors.black87,
+                                                        fontSize: 15,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    const Icon(
+                                                      Icons.edit,
+                                                      size: 16,
+                                                      color: Colors.black54,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 12),
+                                        SizedBox(
+                                          height: 38,
+                                          child: ListView.separated(
+                                            scrollDirection: Axis.horizontal,
+                                            itemCount: exercise.sets,
+                                            separatorBuilder: (_, __) =>
+                                                const SizedBox(width: 8),
+                                            itemBuilder: (context, index) {
+                                              final value = progress[index];
+                                              final isEmpty = value == null;
+                                              final isBlocked =
+                                                  index > 0 &&
+                                                  !_isSetFinalized(
+                                                    exercise.name,
+                                                    index - 1,
+                                                  );
+                                              final isFinalized =
+                                                  _isSetFinalized(
+                                                    exercise.name,
+                                                    index,
+                                                  );
+
+                                              return GestureDetector(
+                                                key: Key(
+                                                  'today_set_${exercise.name}_$index',
+                                                ),
+                                                onTap: isBlocked
+                                                    ? null
+                                                    : () => _recordSetValue(
+                                                        exercise.name,
+                                                        index,
+                                                      ),
+                                                onLongPress: () =>
+                                                    _resetSetValue(
+                                                      exercise.name,
+                                                      index,
+                                                    ),
+                                                child: AnimatedContainer(
+                                                  duration: const Duration(
+                                                    milliseconds: 180,
+                                                  ),
+                                                  width: 42,
+                                                  height: 42,
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    border: Border.all(
+                                                      color: isBlocked
+                                                          ? Colors.grey.shade300
+                                                          : (isEmpty
+                                                                ? Colors.black54
+                                                                : (isFinalized
+                                                                      ? Colors
+                                                                            .red
+                                                                      : Colors
+                                                                            .black54)),
+                                                      width: 1.5,
+                                                    ),
+                                                    color: isBlocked
+                                                        ? Colors.grey.shade100
+                                                        : (isFinalized
+                                                              ? Colors.red
+                                                              : Colors.white),
+                                                  ),
+                                                  child: isEmpty
+                                                      ? const SizedBox()
+                                                      : Center(
+                                                          child: Text(
+                                                            value.toString(),
+                                                            style: TextStyle(
+                                                              color: isFinalized
+                                                                  ? Colors.white
+                                                                  : Colors
+                                                                        .black87,
+                                                              fontSize: 13,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   );
                                 }).toList(),

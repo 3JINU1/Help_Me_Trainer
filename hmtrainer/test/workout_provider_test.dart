@@ -55,6 +55,39 @@ void main() {
     expect(provider.getRoutineForDate(DateTime(2026, 9, 23)), isNull);
   });
 
+  test(
+    'persists weekend skip preference without deleting weekend assignments',
+    () async {
+      final provider = WorkoutProvider();
+      await provider.ready;
+      await provider.addRoutine(
+        WorkoutRoutine(
+          id: 'weekend-routine',
+          name: '주말 루틴',
+          exercises: [
+            RoutineExercise(name: '스쿼트', sets: 3, reps: 10, weight: 60),
+          ],
+        ),
+      );
+      await provider.assignRoutineToWeekday('토', 'weekend-routine');
+      await provider.setWeekendSkipped(true);
+
+      expect(provider.getRoutineForDate(DateTime(2026, 9, 19)), isNull);
+
+      final restoredProvider = WorkoutProvider();
+      await restoredProvider.ready;
+      expect(restoredProvider.weekendSkipped, isTrue);
+      expect(restoredProvider.weekdayRoutineIds['토'], 'weekend-routine');
+      expect(restoredProvider.getRoutineForDate(DateTime(2026, 9, 19)), isNull);
+
+      await restoredProvider.setWeekendSkipped(false);
+      expect(
+        restoredProvider.getRoutineForDate(DateTime(2026, 9, 19))?.id,
+        'weekend-routine',
+      );
+    },
+  );
+
   test('preserves cardio session metadata for a saved routine', () {
     final provider = WorkoutProvider();
     final routine = WorkoutRoutine(
@@ -129,18 +162,28 @@ void main() {
     expect(WorkoutRecord.fromJson(record.toJson()).weight, 81.25);
   });
 
-  test('applies exercise progression to the next workout only', () async {
+  test('uses the saved routine weight for the next workout', () async {
     final provider = WorkoutProvider();
     await provider.ready;
     final previousDate = DateTime(2026, 9, 9);
     final workoutDate = DateTime(2026, 9, 10);
+    await provider.addRoutine(
+      WorkoutRoutine(
+        id: 'progression-routine',
+        name: '증량 루틴',
+        exercises: [
+          RoutineExercise(name: '스쿼트', sets: 3, reps: 10, weight: 81.75),
+          RoutineExercise(name: '데드리프트', sets: 3, reps: 10, weight: 60),
+        ],
+      ),
+    );
     await provider.saveCompletedWorkout(previousDate, [
       WorkoutRecord(exercise: '스쿼트', weight: 80.5, date: previousDate),
     ]);
     await provider.setExerciseProgressionAmount('스쿼트', 1.25);
     await provider.setExerciseProgressionEnabled('스쿼트', true);
 
-    expect(provider.nextWorkoutWeight('스쿼트', 60, workoutDate), 81.75);
+    expect(provider.nextWorkoutWeight('스쿼트', 81.75, workoutDate), 81.75);
     expect(provider.nextWorkoutWeight('데드리프트', 60, workoutDate), 60);
     expect(provider.nextWorkoutWeight('스쿼트', 60, previousDate), 80.5);
   });
@@ -180,7 +223,7 @@ void main() {
   });
 
   test(
-    'routine exercise only completes when every set reaches target reps',
+    'routine exercise completes when every set records positive repetitions',
     () {
       final exercise = RoutineExercise(
         name: '스쿼트',
@@ -190,9 +233,11 @@ void main() {
       );
 
       expect(exercise.hasCompletedAllSets([10, 10, 10], {0, 1, 2}), isTrue);
-      expect(exercise.hasCompletedAllSets([10, 9, 10], {0, 1, 2}), isFalse);
+      expect(exercise.hasCompletedAllSets([10, 9, 10], {0, 1, 2}), isTrue);
+      expect(exercise.hasCompletedAllSets([10, 0, 10], {0, 1, 2}), isFalse);
       expect(exercise.hasCompletedAllSets([10, 10], {0, 1}), isFalse);
       expect(exercise.hasCompletedAllSets([10, 10, 10], {0, 1}), isFalse);
+      expect(exercise.hasCompletedAllSets([10, 9, 10], {0, 2}), isFalse);
     },
   );
 
@@ -225,6 +270,8 @@ void main() {
         ),
         isNull,
       );
+      expect(exercise.hasCompletedAllSets([10, 9, 10], {0, 1, 2}), isTrue);
+      expect(exercise.hasReachedTargetReps([10, 9, 10], {0, 1, 2}), isFalse);
       expect(
         exercise.completedProgressionWeight(
           progressionEnabled: false,

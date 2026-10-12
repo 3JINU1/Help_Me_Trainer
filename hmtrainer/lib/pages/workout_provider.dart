@@ -26,11 +26,9 @@ class ExerciseProgressionSetting {
   };
 
   factory ExerciseProgressionSetting.fromJson(Map<String, dynamic> json) {
-    final storedIncrement =
-        (json['incrementKg'] as num?)?.toDouble() ?? 1.25;
+    final storedIncrement = (json['incrementKg'] as num?)?.toDouble() ?? 1.25;
     final clampedIncrement = storedIncrement.clamp(1.25, 10).toDouble();
-    final increment =
-        1.25 + ((clampedIncrement - 1.25) / 0.25).round() * 0.25;
+    final increment = 1.25 + ((clampedIncrement - 1.25) / 0.25).round() * 0.25;
     return ExerciseProgressionSetting(
       enabled: json['enabled'] as bool? ?? false,
       incrementKg: increment,
@@ -106,12 +104,14 @@ class WorkoutProvider {
   final Map<String, String> _dateRoutineIds = {};
   final Map<String, ExerciseProgressionSetting> _exerciseProgressions = {};
   RestTimerSettings _restTimerSettings = RestTimerSettings.defaults;
+  bool _weekendSkipped = false;
 
   List<WorkoutRoutine> get routines => List.unmodifiable(_routines);
   List<WorkoutRecord> get workoutRecords => List.unmodifiable(_workoutRecords);
   Map<String, ExerciseProgressionSetting> get exerciseProgressions =>
       Map.unmodifiable(_exerciseProgressions);
   RestTimerSettings get restTimerSettings => _restTimerSettings;
+  bool get weekendSkipped => _weekendSkipped;
   Map<String, String?> get weekdayRoutineIds =>
       Map.unmodifiable(_weekdayRoutineIds);
 
@@ -161,11 +161,12 @@ class WorkoutProvider {
     var previousAlertSeconds = initialSeconds;
     final alertSeconds = <int>[];
     for (final value
-        in prefs.getStringList('rest_timer_alert_seconds') ?? const <String>[]) {
+        in prefs.getStringList('rest_timer_alert_seconds') ??
+            const <String>[]) {
       final seconds = int.tryParse(value);
       if (seconds == null ||
-          seconds < previousAlertSeconds +
-              RestTimerSettings.minimumAlertGapSeconds ||
+          seconds <
+              previousAlertSeconds + RestTimerSettings.minimumAlertGapSeconds ||
           seconds > RestTimerSettings.maximumAlertSeconds) {
         continue;
       }
@@ -180,6 +181,7 @@ class WorkoutProvider {
     _completedWorkoutDates
       ..clear()
       ..addAll(prefs.getStringList('completed_workout_dates') ?? <String>[]);
+    _weekendSkipped = prefs.getBool('weekday_weekend_skipped') ?? false;
 
     final weekdayEntries =
         prefs.getStringList('weekday_routine_ids') ?? <String>[];
@@ -205,8 +207,7 @@ class WorkoutProvider {
   }
 
   ExerciseProgressionSetting progressionForExercise(String exercise) =>
-      _exerciseProgressions[exercise] ??
-      const ExerciseProgressionSetting();
+      _exerciseProgressions[exercise] ?? const ExerciseProgressionSetting();
 
   double nextWorkoutWeight(
     String exercise,
@@ -214,9 +215,7 @@ class WorkoutProvider {
     DateTime date,
   ) {
     final records =
-        _workoutRecords
-            .where((record) => record.exercise == exercise)
-            .toList()
+        _workoutRecords.where((record) => record.exercise == exercise).toList()
           ..sort((a, b) => a.date.compareTo(b.date));
     final recordsForDate = records.where(
       (record) =>
@@ -224,16 +223,8 @@ class WorkoutProvider {
           record.date.month == date.month &&
           record.date.day == date.day,
     );
-    final baseline = recordsForDate.isNotEmpty
-        ? recordsForDate.last.weight
-        : records.isNotEmpty
-        ? records.last.weight
-        : routineWeight;
-    final progression = progressionForExercise(exercise);
-    return baseline +
-        (progression.enabled && recordsForDate.isEmpty
-            ? progression.incrementKg
-            : 0);
+    if (recordsForDate.isNotEmpty) return recordsForDate.last.weight;
+    return routineWeight;
   }
 
   Future<void> setExerciseProgressionEnabled(
@@ -377,6 +368,13 @@ class WorkoutProvider {
     }
   }
 
+  Future<void> setWeekendSkipped(bool skipped) async {
+    await ready;
+    _weekendSkipped = skipped;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('weekday_weekend_skipped', skipped);
+  }
+
   Future<void> assignRoutineToDate(DateTime date, String routineId) async {
     _dateRoutineIds[_normalizeDate(date)] = routineId;
     await _persistToStorage();
@@ -428,6 +426,8 @@ class WorkoutProvider {
     if (dateRoutineId != null) {
       return getRoutineById(dateRoutineId);
     }
+
+    if (_weekendSkipped && date.weekday >= DateTime.saturday) return null;
 
     final weekday = _weekdayLabel(date.weekday);
     return getRoutineForWeekday(weekday);

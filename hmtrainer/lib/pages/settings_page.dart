@@ -271,7 +271,7 @@ class SettingsPage extends StatelessWidget {
               ),
             ),
             subtitle: Text(
-              'HMT v0.5.0',
+              'HMT v0.9.0',
               style: TextStyle(color: Colors.black54),
             ),
           ),

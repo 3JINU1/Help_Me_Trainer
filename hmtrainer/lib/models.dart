@@ -122,6 +122,24 @@ class RoutineExercise {
     return List<bool>.generate(
       sets,
       (index) =>
+          (repetitionsBySet[index] ?? 0) > 0 &&
+          finalizedSetIndexes.contains(index),
+    ).every((completed) => completed);
+  }
+
+  bool hasReachedTargetReps(
+    List<int?> repetitionsBySet,
+    Set<int> finalizedSetIndexes,
+  ) {
+    if (type == '유산소' ||
+        sets <= 0 ||
+        repetitionsBySet.length < sets ||
+        finalizedSetIndexes.length < sets) {
+      return false;
+    }
+    return List<bool>.generate(
+      sets,
+      (index) =>
           repetitionsBySet[index] == reps &&
           finalizedSetIndexes.contains(index),
     ).every((completed) => completed);
@@ -134,7 +152,7 @@ class RoutineExercise {
     required double appliedWeight,
   }) {
     if (!progressionEnabled ||
-        !hasCompletedAllSets(repetitionsBySet, finalizedSetIndexes)) {
+        !hasReachedTargetReps(repetitionsBySet, finalizedSetIndexes)) {
       return null;
     }
     return appliedWeight;
